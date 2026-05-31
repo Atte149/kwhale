@@ -210,7 +210,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+GNU General Public License v3.0 - see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
