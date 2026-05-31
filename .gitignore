@@ -1,0 +1,17 @@
+.env
+api/.env
+worker/.env
+mcp/.env
+tagger/.env
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.DS_Store
+.pytest_cache/
+.claude/
+*.log
+*.db
+*.db-shm
+*.db-wal
+data/
+PUBLICATION_GUIDE.md

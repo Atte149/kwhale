@@ -1,0 +1,225 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4535:4533"
+    environment:
+      ND_SCANSCHEDULE: 1m
+      ND_LOGLEVEL: info
+      ND_SESSIONTIMEOUT: 24h
+      ND_BASEURL: ""
+      ND_LASTFM_ENABLED: "false"
+      ND_ENABLETRANSCODINGCONFIG: "true"
+      ND_DEFAULTTHEME: "Dark"
+      ND_INITIAL_ADMIN_USERNAME: ${NAVIDROME_USERNAME}
+      ND_INITIAL_ADMIN_PASSWORD: ${NAVIDROME_PASSWORD}
+    volumes:
+      - ${DATA_ROOT}/navidrome:/data
+      - ${DATA_ROOT}/music/library:/music:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4533/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - kwhale_net
+      - caddy_default
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:19000:8000"
+    env_file:
+      - ./api/.env
+    environment:
+      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
+      WORKER_TAGGER_URL: http://tagger:8093
+      MCP_URL: http://mcp:8090
+      LIBRARY_DIR: /data/library
+      EMBEDDING_API_URL: http://embedding:8000/v1/embeddings
+    volumes:
+      - ${DATA_ROOT}/music/library:/data/library:ro
+      - ${DATA_ROOT}/navidrome:/data/navidrome:ro
+    depends_on:
+      navidrome:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - kwhale_net
+      - caddy_default
+
+  worker:
+    build: ./worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+    env_file:
+      - ./worker/.env
+    environment:
+      MUSIC_INCOMING_DIR: /data/incoming
+      NAVIDROME_DB: /navidrome/navidrome.db
+      LIBRARY_DIR: /library
+      EMBEDDING_API_URL: http://embedding:8000/v1/embeddings
+      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
+      LOCAL_TZ_OFFSET_HOURS: "3"
+    volumes:
+      - ${DATA_ROOT}/music:/data
+      - ${DATA_ROOT}/music/library:/library:ro
+      - ${DATA_ROOT}/navidrome:/navidrome:ro
+    depends_on:
+      - redis
+      - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+    networks:
+      - kwhale_net
+
+  worker-beat:
+    build: ./worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=INFO"]
+    env_file:
+      - ./worker/.env
+    environment:
+      NAVIDROME_DB: /navidrome/navidrome.db
+    volumes:
+      - ${DATA_ROOT}/navidrome:/navidrome:ro
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - kwhale_net
+
+  tagger:
+    build: ./tagger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8093:8093"
+    environment:
+      INCOMING_DIR: /data/incoming
+      LIBRARY_DIR: /data/library
+      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL}
+      YANDEX_MUSIC_TOKEN: ${YANDEX_MUSIC_TOKEN:-}
+      TAGGER_MAX_CONCURRENT: "20"
+    volumes:
+      - ${DATA_ROOT}/music:/data
+    depends_on:
+      - postgres
+      - navidrome
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8093/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - kwhale_net
+
+  tagger-watcher:
+    build: ./tagger
+    restart: unless-stopped
+    command: ["python", "-m", "app.watcher"]
+    environment:
+      INCOMING_DIR: /data/incoming
+      TAGGER_URL: http://tagger:8093
+      WATCHER_POLL_INTERVAL: "15"
+      WATCHER_SETTLE_SECONDS: "10"
+    volumes:
+      - ${DATA_ROOT}/music:/data
+    depends_on:
+      - tagger
+    networks:
+      - kwhale_net
+
+  mcp:
+    build: ./mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    env_file:
+      - ./mcp/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
+      NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
+      KWHALE_API_URL: http://api:8000
+    depends_on:
+      - postgres
+    networks:
+      - kwhale_net
+
+  embedding:
+    build: ./embedding
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8095:8000"
+    environment:
+      EMBEDDING_MODEL: BAAI/bge-m3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    networks:
+      - kwhale_net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kwhale
+      POSTGRES_USER: kwhale
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${DATA_ROOT}/postgres:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kwhale"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kwhale_net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ${DATA_ROOT}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - kwhale_net
+
+networks:
+  kwhale_net:
+    name: kwhale_net
+    driver: bridge
+  caddy_default:
+    external: true
