@@ -93,12 +93,27 @@ def download_provider_track(self, provider_name: str, provider_id: str, task_id:
         _update_queue(task_id, "failed", error="No provider available")
         return
 
+    if not provider.is_available():
+        _update_queue(
+            task_id, "failed",
+            error=f"Provider '{provider.name}' is not configured (missing key/token)",
+        )
+        return
+
     dest_dir = INCOMING_DIR / task_id
     _update_queue(task_id, "running", pct=10)
 
-    filepath = provider.download(provider_id, dest_dir)
+    try:
+        filepath = provider.download(provider_id, dest_dir)
+    except Exception as e:
+        _update_queue(task_id, "failed", error=f"{provider.name} download error: {e}"[:500])
+        return
     if not filepath:
-        _update_queue(task_id, "failed", error="Download failed")
+        _update_queue(
+            task_id, "failed",
+            error=f"{provider.name} returned no file for '{provider_id}' "
+                  "(track unavailable in region, auth, or network error)",
+        )
         return
 
     _update_queue(task_id, "tagging", pct=80)

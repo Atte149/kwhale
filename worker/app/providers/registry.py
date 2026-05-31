@@ -20,12 +20,16 @@ def _load_all() -> dict[str, BaseProvider]:
             continue
         importlib.import_module(f"app.providers.{module_name}")
 
-    result = {}
+    instances = []
     for cls in BaseProvider.__subclasses__():
         instance = cls()
         if instance.is_available():
-            result[instance.name] = instance
-    return result
+            instances.append(instance)
+
+    # Preferred providers first (lowest priority value), so merged search
+    # results and the no-provider download fallback favour them.
+    instances.sort(key=lambda p: p.priority)
+    return {p.name: p for p in instances}
 
 
 def get_providers() -> dict[str, BaseProvider]:

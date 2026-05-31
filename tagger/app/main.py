@@ -5,8 +5,10 @@ Ported from musicbrain/tagger with minimal changes.
 import asyncio
 import os
 import shutil
+import uuid
 from pathlib import Path
 
+import asyncpg
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 
@@ -18,6 +20,7 @@ LIBRARY_DIR = Path(os.environ.get("LIBRARY_DIR", "/data/library"))
 NAVIDROME_URL = os.environ.get("NAVIDROME_URL", "http://navidrome:4533")
 NAVIDROME_USERNAME = os.environ.get("NAVIDROME_USERNAME", "admin")
 NAVIDROME_PASSWORD = os.environ.get("NAVIDROME_PASSWORD", "admin")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 TAGGER_MAX_CONCURRENT = int(os.environ.get("TAGGER_MAX_CONCURRENT", "20"))
 
 app = FastAPI(title="KWhale Tagger")
@@ -42,21 +45,54 @@ async def tag_file(req: TagRequest, bg: BackgroundTasks):
 
 async def _process_file(filepath: Path):
     async with _semaphore:
+        # Files acquired via /discover land in incoming/<task_id>/<file>; the
+        # parent dir name is the download_queue id we report progress back to.
+        task_id = filepath.parent.name
         try:
             meta = await asyncio.to_thread(resolve_metadata, str(filepath))
             if not meta:
                 failed = INCOMING_DIR / "failed" / filepath.name
                 failed.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(filepath), str(failed))
+                await _update_queue(task_id, "failed",
+                                    error="Could not resolve metadata (no tags / no AcoustID match)")
                 return
 
             dest = LIBRARY_DIR / build_path(meta)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(filepath), str(dest))
 
+            # Track is in the library; Navidrome will index it on the next scan.
+            await _update_queue(task_id, "done", pct=100)
             await _trigger_navidrome_scan()
         except Exception as e:
             print(f"Tagger error for {filepath}: {e}")
+            await _update_queue(task_id, "failed", error=str(e)[:500])
+
+
+async def _update_queue(task_id: str, status: str, error: str | None = None,
+                        pct: float | None = None):
+    """Reflect the tagging outcome back to download_queue so the acquire UI can
+    progress past 'tagging'. No-op for files that didn't come from /discover."""
+    if not DATABASE_URL:
+        return
+    try:
+        uuid.UUID(task_id)  # acquire task_ids are UUIDs; skip anything else
+    except (ValueError, TypeError, AttributeError):
+        return
+    try:
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            await conn.execute(
+                "UPDATE download_queue SET status=$1, error=$2, "
+                "progress_pct=COALESCE($3, progress_pct), updated_at=NOW() "
+                "WHERE id=$4",
+                status, error, pct, task_id,
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        print(f"Tagger queue update failed for {task_id}: {e}")
 
 
 async def _trigger_navidrome_scan():

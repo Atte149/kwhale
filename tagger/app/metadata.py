@@ -85,7 +85,11 @@ def _acoustid_lookup(filepath: str) -> dict | None:
 
         return {
             "title": rec.get("title", ""),
+            # Full credit (incl. featured artists) goes in `artist`...
             "artist": ", ".join(a.get("name", "") for a in artists),
+            # ...but group by the primary artist so featured tracks don't each
+            # collapse into one combined-string artist card.
+            "albumartist": artists[0].get("name", "") if artists else "",
             "album": release.get("title", ""),
             "year": str(release.get("date", {}).get("year", "")),
         }

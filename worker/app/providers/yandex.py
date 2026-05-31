@@ -10,6 +10,8 @@ from .base import BaseProvider, TrackMeta
 
 class YandexProvider(BaseProvider):
     name = "yandex"
+    # Fallback after ICM (priority 10).
+    priority = 20
 
     def __init__(self):
         self.token = os.environ.get("YANDEX_MUSIC_TOKEN", "")
@@ -36,6 +38,12 @@ class YandexProvider(BaseProvider):
     def _to_meta(self, t) -> TrackMeta:
         artists = [a.name for a in (t.artists or [])]
         album = t.albums[0] if t.albums else None
+        # t.cover_uri already includes the host and a trailing "%%" size
+        # placeholder, e.g. "avatars.yandex.net/get-music-content/.../%%".
+        # Build the URL by substituting the size, not by appending one.
+        cover_url = ""
+        if t.cover_uri:
+            cover_url = f"https://{t.cover_uri.replace('%%', '400x400')}"
         return TrackMeta(
             provider=self.name,
             provider_id=str(t.id),
@@ -43,8 +51,7 @@ class YandexProvider(BaseProvider):
             artist=", ".join(artists),
             album=album.title if album else "",
             duration_sec=(t.duration_ms or 0) // 1000,
-            cover_url=f"https://avatars.yandex.net/get-music-content/{t.cover_uri}/200x200"
-            if t.cover_uri else "",
+            cover_url=cover_url,
             raw={"id": t.id},
         )
 
@@ -67,6 +74,31 @@ class YandexProvider(BaseProvider):
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest = dest_dir / f"{provider_id}.mp3"
             track.download(str(dest), codec="mp3", bitrate_in_kbps=320)
+            self._embed_tags(dest, track)
             return dest
         except Exception:
             return None
+
+    def _embed_tags(self, dest: Path, track) -> None:
+        """Yandex delivers untagged MP3s. Embed metadata so the tagger (which
+        requires title+artist) can ingest the file, and so featured tracks group
+        by the primary artist via albumartist instead of collapsing."""
+        try:
+            import mutagen
+            artists = [a.name for a in (track.artists or [])]
+            album = track.albums[0] if track.albums else None
+            mf = mutagen.File(str(dest), easy=True)
+            if mf is None:
+                return
+            if track.title:
+                mf["title"] = [track.title]
+            if artists:
+                mf["artist"] = [", ".join(artists)]
+                mf["albumartist"] = [artists[0]]
+            if album and album.title:
+                mf["album"] = [album.title]
+                if getattr(album, "year", None):
+                    mf["date"] = [str(album.year)]
+            mf.save()
+        except Exception:
+            pass

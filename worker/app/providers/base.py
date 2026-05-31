@@ -44,6 +44,9 @@ class BaseProvider(ABC):
 
     name: str = "base"
     enabled: bool = True
+    # Lower number = preferred. Used to order/dedup merged search results and
+    # to pick a fallback provider when none is specified.
+    priority: int = 100
 
     @abstractmethod
     def search(self, query: str, limit: int = 10) -> list[TrackMeta]:
