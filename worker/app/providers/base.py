@@ -63,6 +63,27 @@ class BaseProvider(ABC):
         """Download a track to dest_dir. Returns path to downloaded file or None."""
         ...
 
+    def fetch_cover(self, url: str, dest_dir: Path) -> Path | None:
+        """Optional: download a cover image (e.g. from meta.cover_url) into
+        dest_dir/cover.jpg. Returns the saved path or None. Providers that
+        don't expose a direct cover URL should leave this as the default
+        no-op; the worker skips cover download for them. The default saves
+        bytes via httpx and works for any HTTPS URL.
+        """
+        if not url:
+            return None
+        import httpx
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                r = client.get(url)
+                r.raise_for_status()
+                dest = dest_dir / "cover.jpg"
+                dest.write_bytes(r.content)
+            return dest
+        except Exception:
+            return None
+
     def is_available(self) -> bool:
         """Return False if the provider can't authenticate (missing token etc)."""
         return self.enabled

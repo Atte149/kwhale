@@ -20,7 +20,7 @@ router = APIRouter(prefix="/recs", tags=["recommendations"])
 def _enrich(song: dict, score=None) -> dict:
     return {
         **song,
-        "streamUrl": f"/stream/{song['id']}",
+        "streamUrl": navidrome.stream_url(song["id"]),
         "coverUrl": f"/library/cover/{song.get('coverArt', song['id'])}",
         "rec_score": score,
     }

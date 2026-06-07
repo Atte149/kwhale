@@ -24,7 +24,7 @@ import httpx
 
 OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-USER_AGENT = "kwhale/1.0"
+USER_AGENT = "melorise/1.0"
 
 # Retry policy
 _MAX_ATTEMPTS = int(os.environ.get("LLM_MAX_ATTEMPTS", "4"))

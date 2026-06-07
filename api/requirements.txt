@@ -9,8 +9,3 @@ pydantic==2.10.3
 pydantic-settings==2.6.1
 redis==5.2.1
 celery==5.4.0
-
-# ── Dev / test only ──────────────────────────────────────────────────────────
-pytest==8.3.4
-pytest-asyncio==0.24.0
-respx==0.21.1

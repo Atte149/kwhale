@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS track_features (
     index_error     TEXT,
     index_attempts  INT DEFAULT 0,
 
+    -- All credited artists on the track (primary + featured collaborators).
+    -- Sourced from the VorBis `artists` tag (multi-value, ';' separated),
+    -- falling back to `artist` and finally to a title "(feat. X & Y)" parse.
+    -- Used by the recommender, library search, and track-similarity logic.
+    all_artists        text[] NOT NULL DEFAULT '{}',
+    all_artists_text   text   NOT NULL DEFAULT '',  -- mirror of all_artists for trigram GIN
+    artists_indexed_at TIMESTAMPTZ,
+
     indexed_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -61,6 +69,13 @@ CREATE INDEX IF NOT EXISTS track_features_artist_trgm
 
 CREATE INDEX IF NOT EXISTS track_features_title_trgm
     ON track_features USING gin (title gin_trgm_ops);
+
+-- Trigram index over the multi-artist array (via the mirror text column)
+-- so the recommender can ask "any track featuring $NAME" in O(log n)
+-- instead of scanning the table. GIN trigram does not work on text[]
+-- directly, hence the mirror.
+CREATE INDEX IF NOT EXISTS track_features_all_artists_text_trgm
+    ON track_features USING gin (all_artists_text gin_trgm_ops);
 
 -- ── Playback events (rich telemetry from the client) ─────────────────────────
 CREATE TABLE IF NOT EXISTS playback_events (

@@ -9,6 +9,7 @@ import psycopg2
 import psycopg2.extras
 
 from .json_utils import extract_string_list
+from . import tagging
 from .tagging import clean_tags as _clean_tags, parse_spectro as _parse_spectro
 from . import llm_client
 from .llm_client import LLMError
@@ -226,6 +227,28 @@ def analyze_spectrogram(png: bytes, artist: str, title: str) -> dict:
     return _parse_spectro(content)
 
 
+def _read_all_artists(filepath: str, title: str) -> list[str]:
+    """Read all_artists from the FLAC file. Returns [] on any read error.
+
+    VorBis `artists` (multi-value) is the source of truth; the indexer
+    only needs the column populated — the heavy parsing logic lives in
+    tagging.extract_all_artists and is unit-tested separately.
+    """
+    try:
+        import mutagen
+        mf = mutagen.File(filepath, easy=True)
+        if mf is None:
+            return []
+        return tagging.extract_all_artists(
+            mf.get("artists"),
+            mf.get("artist"),
+            mf.get("title") or [title] if title else mf.get("title"),
+        )
+    except Exception as e:
+        print(f"_read_all_artists error for {filepath}: {e}")
+        return []
+
+
 def _record_failure(navidrome_id: str, filepath: str, title: str, artist: str, reason: str) -> None:
     """Persist a 'failed' row so the track is not retried forever.
 
@@ -233,7 +256,13 @@ def _record_failure(navidrome_id: str, filepath: str, title: str, artist: str, r
     with attempts past the retry budget, so we must leave a marker here instead
     of returning silently. Re-running an explicit index keeps incrementing
     index_attempts so transient failures still get a few chances.
+
+    All artists (primary + features) are still written to `all_artists` so
+    the backfill doesn't have to re-read FLAC for tracks that already
+    failed Essentia.
     """
+    all_artists = _read_all_artists(filepath, title)
+    all_artists_text = " ".join(all_artists)
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
@@ -241,15 +270,20 @@ def _record_failure(navidrome_id: str, filepath: str, title: str, artist: str, r
                     """
                     INSERT INTO track_features
                         (navidrome_id, filepath, title, artist,
+                         all_artists, all_artists_text, artists_indexed_at,
                          index_status, index_error, index_attempts)
-                    VALUES (%s,%s,%s,%s,'failed',%s,1)
+                    VALUES (%s,%s,%s,%s,%s,%s,NOW(),'failed',%s,1)
                     ON CONFLICT (navidrome_id) DO UPDATE SET
                         index_status='failed',
                         index_error=EXCLUDED.index_error,
                         index_attempts=track_features.index_attempts + 1,
+                        all_artists=EXCLUDED.all_artists,
+                        all_artists_text=EXCLUDED.all_artists_text,
+                        artists_indexed_at=NOW(),
                         updated_at=NOW()
                     """,
-                    (navidrome_id, filepath, title, artist, reason[:500]),
+                    (navidrome_id, filepath, title, artist,
+                     all_artists, all_artists_text, reason[:500]),
                 )
     except Exception as e:
         print(f"_record_failure error for {navidrome_id}: {e}")
@@ -275,11 +309,13 @@ def index_track(navidrome_id: str, filepath: str, artist: str, title: str) -> bo
         spectro = analyze_spectrogram(png, artist, title)
 
     duration = None
+    all_artists: list[str] = []
     try:
         import mutagen
         mf = mutagen.File(filepath)
         if mf and mf.info:
             duration = mf.info.length
+        all_artists = _read_all_artists(filepath, title)
     except Exception:
         pass
 
@@ -297,16 +333,20 @@ def index_track(navidrome_id: str, filepath: str, artist: str, title: str) -> bo
                 """
                 INSERT INTO track_features
                     (navidrome_id, filepath, title, artist, duration_sec,
+                     all_artists, all_artists_text, artists_indexed_at,
                      bpm, energy, valence, instrumentalness, danceability,
                      loudness, key, mode, features_vector, lyrics, lyrics_embedding, vibe_tags,
                      spectro_desc, spectro_tags, index_status, index_error)
-                VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s, %s,%s,%s,%s::vector,%s,%s::vector,%s, %s,%s,'ok',NULL)
+                VALUES (%s,%s,%s,%s,%s, %s,%s,NOW(), %s,%s,%s,%s,%s, %s,%s,%s,%s::vector,%s,%s::vector,%s, %s,%s,'ok',NULL)
                 ON CONFLICT (navidrome_id) DO UPDATE SET
                     bpm=EXCLUDED.bpm, energy=EXCLUDED.energy,
                     valence=EXCLUDED.valence, instrumentalness=EXCLUDED.instrumentalness,
                     danceability=EXCLUDED.danceability, loudness=EXCLUDED.loudness,
                     key=EXCLUDED.key, mode=EXCLUDED.mode,
                     features_vector=EXCLUDED.features_vector,
+                    all_artists=EXCLUDED.all_artists,
+                    all_artists_text=EXCLUDED.all_artists_text,
+                    artists_indexed_at=NOW(),
                     lyrics=COALESCE(EXCLUDED.lyrics, track_features.lyrics),
                     lyrics_embedding=COALESCE(EXCLUDED.lyrics_embedding, track_features.lyrics_embedding),
                     vibe_tags=COALESCE(EXCLUDED.vibe_tags, track_features.vibe_tags),
@@ -317,6 +357,7 @@ def index_track(navidrome_id: str, filepath: str, artist: str, title: str) -> bo
                 """,
                 (
                     navidrome_id, filepath, title, artist, duration,
+                    all_artists, " ".join(all_artists),
                     features.get("bpm") if features else None,
                     features.get("energy") if features else None,
                     features.get("valence") if features else None,

@@ -98,7 +98,7 @@ Single FastMCP server consolidating all tools.
 | MCP server      | 8090  | localhost only |
 | Tagger          | 8093  | Internal only |
 
-## Data Paths (all under DATA_ROOT)
+## Data Paths (all under /files/kwhale/data)
 
 | Path | Purpose |
 |------|---------|

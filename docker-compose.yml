@@ -36,6 +36,7 @@ services:
     environment:
       NAVIDROME_URL: http://navidrome:4533
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
+      PUBLIC_NAVIDROME_URL: https://music.dueattendant149.org
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
       WORKER_TAGGER_URL: http://tagger:8093
       MCP_URL: http://mcp:8090
@@ -44,6 +45,7 @@ services:
     volumes:
       - ${DATA_ROOT}/music/library:/data/library:ro
       - ${DATA_ROOT}/navidrome:/data/navidrome:ro
+      - /files/kwhale/apk:/apk:ro
     depends_on:
       navidrome:
         condition: service_healthy

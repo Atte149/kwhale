@@ -76,10 +76,12 @@ class ICMProvider(BaseProvider):
         return [self._to_meta(t) for t in tracks[:limit]]
 
     def _to_meta(self, t: dict) -> TrackMeta:
+        # ICM mirrors Apple artwork at {1000x1000, 600x600, 300x300} sizes via
+        # string substitution. Keep the 1000x1000 URL so the worker downloads
+        # the high-res cover alongside the audio (Navidrome picks up
+        # cover.jpg from the album folder on its next scan). Clients that
+        # only need a thumbnail can downsize by replacing the size token.
         cover = t.get("cover") or ""
-        if cover:
-            # Apple artwork template — request a sane thumbnail size.
-            cover = cover.replace("1000x1000", "300x300")
         duration_ms = t.get("duration") or 0
         return TrackMeta(
             provider=self.name,
@@ -160,3 +162,6 @@ class ICMProvider(BaseProvider):
         if m:
             return m.group(1).lower()
         return "mp3" if source == "vk" else "m4a"
+
+    # The base class's fetch_cover() default works for ICM (it just GETs the
+    # URL) — no override needed. Yandex covers also fit the default pattern.

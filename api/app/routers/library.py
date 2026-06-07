@@ -1,6 +1,6 @@
 """Library endpoints — proxies Navidrome + enriches with vibe data from our DB."""
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from ..auth import current_user
 from ..db import get_pool
@@ -79,7 +79,6 @@ async def list_albums(
 async def get_album(album_id: str, user: str = Depends(current_user)):
     album = await navidrome.get_album(album_id)
     if not album:
-        from fastapi import HTTPException
         raise HTTPException(404, "Album not found")
     return album
 
@@ -94,7 +93,6 @@ async def list_artists(user: str = Depends(current_user)):
 async def get_artist(artist_id: str, user: str = Depends(current_user)):
     artist = await navidrome.get_artist(artist_id)
     if not artist:
-        from fastapi import HTTPException
         raise HTTPException(404, "Artist not found")
     return artist
 
@@ -103,7 +101,6 @@ async def get_artist(artist_id: str, user: str = Depends(current_user)):
 async def get_song(song_id: str, user: str = Depends(current_user)):
     song = await navidrome.get_song(song_id)
     if not song:
-        from fastapi import HTTPException
         raise HTTPException(404, "Song not found")
     pool = await get_pool()
     row = await pool.fetchrow(
@@ -115,9 +112,56 @@ async def get_song(song_id: str, user: str = Depends(current_user)):
 
 
 @router.get("/cover/{cover_id}")
-async def get_cover(cover_id: str, size: int = 300, user: str = Depends(current_user)):
+async def get_cover(cover_id: str, size: int = 1200, user: str = Depends(current_user)):
+    # Proxy Navidrome's getCoverArt response through the API instead of
+    # redirecting the client to the internal Docker URL (which is unreachable
+    # from the open internet and from mobile networks). We forward the body
+    # bytes verbatim and propagate the image Content-Type so the client gets
+    # the same bytes Navidrome would have served directly.
+    import httpx
+
+    # cap size to a sane max — clients occasionally pass huge values
+    if size > 1500:
+        size = 1500
     url = navidrome.cover_url(cover_id, size=size)
-    return RedirectResponse(url=url, status_code=302)
+    timeout = httpx.Timeout(connect=5.0, read=20.0, write=20.0, pool=5.0)
+
+    # Open the streaming response so we can read its headers (status,
+    # content-type) and return a clean error if Navidrome reports a missing
+    # cover. The body iterator lives inside the StreamingResponse and the
+    # httpx client closes itself when iteration ends — single connection,
+    # proper lifecycle.
+    client = httpx.AsyncClient(timeout=timeout)
+    try:
+        upstream = await client.send(client.build_request("GET", url), stream=True)
+    except Exception:
+        await client.aclose()
+        raise HTTPException(502, "navidrome unreachable")
+
+    if upstream.status_code >= 400:
+        await upstream.aread()
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(404, "cover not found" if upstream.status_code == 404 else "navidrome error")
+
+    content_type = (upstream.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+
+    async def _iter():
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=65536):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _iter(),
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Cover-Source": "kwhale-api",
+        },
+    )
 
 
 @router.post("/songs/{song_id}/star")

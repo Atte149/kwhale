@@ -129,9 +129,12 @@ async def trigger_scan() -> None:
 
 
 def stream_url(song_id: str, max_bitrate: int = 0) -> str:
-    """Return a direct Navidrome stream URL for redirect.
-    The client follows the 302 and streams bytes from Navidrome directly,
-    keeping audio bytes out of our FastAPI process.
+    """Return a Navidrome stream URL for redirect.
+    Uses PUBLIC_NAVIDROME_URL when configured (the public host the client can
+    actually reach — e.g. https://music.dueattendant149.org), otherwise falls
+    back to navidrome_url (internal Docker hostname, used in tests and by
+    in-network clients). The client follows the 302 and streams bytes from
+    Navidrome directly, keeping audio bytes out of our FastAPI process.
     """
     import urllib.parse
     salt = secrets.token_hex(6)
@@ -150,7 +153,8 @@ def stream_url(song_id: str, max_bitrate: int = 0) -> str:
     if max_bitrate:
         params["maxBitRate"] = str(max_bitrate)
     qs = urllib.parse.urlencode(params)
-    return f"{settings.navidrome_url}/rest/stream.view?{qs}"
+    base = settings.public_navidrome_url or settings.navidrome_url
+    return f"{base}/rest/stream.view?{qs}"
 
 
 def cover_url(cover_id: str, size: int = 300) -> str:
@@ -170,4 +174,5 @@ def cover_url(cover_id: str, size: int = 300) -> str:
         "f": "json",
     }
     qs = urllib.parse.urlencode(params)
-    return f"{settings.navidrome_url}/rest/getCoverArt.view?{qs}"
+    base = settings.public_navidrome_url or settings.navidrome_url
+    return f"{base}/rest/getCoverArt.view?{qs}"

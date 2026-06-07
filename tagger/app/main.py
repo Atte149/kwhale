@@ -62,6 +62,16 @@ async def _process_file(filepath: Path):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(filepath), str(dest))
 
+            # If the worker also dropped cover.jpg into the same incoming
+            # dir, move it next to the audio so Navidrome picks it up on its
+            # next scan (it reads cover.jpg / folder.jpg from each album dir).
+            src_cover = filepath.parent / "cover.jpg"
+            if src_cover.is_file():
+                dest_cover = dest.parent / "cover.jpg"
+                # Don't clobber a higher-res cover that already lives there.
+                if not dest_cover.exists() or dest_cover.stat().st_size < src_cover.stat().st_size:
+                    shutil.move(str(src_cover), str(dest_cover))
+
             # Track is in the library; Navidrome will index it on the next scan.
             await _update_queue(task_id, "done", pct=100)
             await _trigger_navidrome_scan()

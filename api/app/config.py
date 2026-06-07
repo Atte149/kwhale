@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     navidrome_url: str = "http://navidrome:4533"
     navidrome_username: str = "admin"
     navidrome_password: str = "admin"
+    # Public-facing Navidrome base (what the client should hit). When set, the
+    # /stream endpoint 302-redirects to this host so the client reaches Navidrome
+    # over the public HTTPS reverse proxy (Caddy /rest/* rule) instead of trying
+    # to resolve the internal Docker hostname. Leave empty to keep the legacy
+    # behaviour (302 to navidrome_url — fine for in-network clients and tests).
+    public_navidrome_url: str = ""
 
     worker_tagger_url: str = "http://tagger:8093"
     mcp_url: str = "http://mcp:8090"

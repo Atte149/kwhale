@@ -17,6 +17,127 @@ _MAX_TAG_LEN = 40
 
 _DESC_RE = re.compile(r'"desc"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
+# ── Collaborative artist parsing ────────────────────────────────────────────
+#
+# The VorBis `artists` tag (multi-value, ';'-separated) is the source of
+# truth for "who is on this track". It is widely written by Picard, beets
+# and friends. Some libraries only set `artist` + a "(feat. X)" in the
+# title, so we also fall back to extracting features from the title.
+#
+# The output is a de-duplicated list of credited artists, primary first,
+# never empty when we know who the main artist is.
+
+_FEAT_RE = re.compile(
+    r"""
+    [\(\[]\s*                   # opening bracket
+    (?:feat\.?|ft\.?|featuring) # feat / ft / featuring
+    \s+
+    ([^\)\]]+?)                 # captured list of featured artists
+    \s*[\)\]]                   # closing bracket
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _split_artists_tag(raw: str | list[str] | None) -> list[str]:
+    """Split a VorBis `artists` value (or list) into a clean list.
+
+    Accepts both a single ';'-separated string ("A; B; C", as written by
+    Picard/beets) and a list of strings (mutagen's easy=True form, one
+    value per written tag). Whitespace, case, and duplicates are folded.
+    """
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        parts = raw.split(";")
+    else:
+        # list[str] — flatten with "; " if a single string contains separators.
+        parts = []
+        for v in raw:
+            if not v:
+                continue
+            parts.extend(p for p in v.split(";") if p)
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        name = p.strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def _split_feat_list(payload: str) -> list[str]:
+    """Split the inside of a (feat. X & Y, Z) block into clean artist names.
+
+    Accepts '&', ',' and 'and' (with optional whitespace) as separators.
+    """
+    if not payload:
+        return []
+    # Normalise "and" to '&' first; then split on either separator.
+    parts = re.split(r"\s*(?:,|\band\b|&)\s*", payload, flags=re.IGNORECASE)
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _add_unique(target: list[str], seen: set[str], name: str) -> None:
+    name = (name or "").strip()
+    if not name:
+        return
+    key = name.casefold()
+    if key in seen:
+        return
+    seen.add(key)
+    target.append(name)
+
+
+def extract_all_artists(
+    artists_tag: str | list[str] | None,
+    artist_tag: str | list[str] | None,
+    title: str | list[str] | None = None,
+) -> list[str]:
+    """Return every credited artist on a track, primary first, deduped.
+
+    Resolution order:
+      1. VorBis `artists` tag (multi-value, ';' separated). This is what
+         Picard, beets, and our own tagger write for collaboration tracks.
+         When present, it is the source of truth — we do NOT also parse
+         the title, which would risk duplicates and false positives on
+         songs whose title incidentally contains the word "feat".
+      2. `artist` tag (single) — guarantees we never return an empty list
+         when we know the main artist.
+      3. (feat. ...) / (ft. ...) blocks in the title — only when the
+         `artists` tag is missing, since older libraries embed the
+         collaboration metadata in the title.
+
+    Returns an empty list only when there is genuinely no artist info.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+
+    for name in _split_artists_tag(artists_tag):
+        _add_unique(out, seen, name)
+
+    if not out:
+        for name in _split_artists_tag(artist_tag):
+            _add_unique(out, seen, name)
+
+        if title:
+            titles = title if isinstance(title, list) else [title]
+            for t in titles:
+                if not t:
+                    continue
+                for m in _FEAT_RE.finditer(t):
+                    for name in _split_feat_list(m.group(1)):
+                        _add_unique(out, seen, name)
+                if out:
+                    break
+
+    return out
+
 
 def clean_tags(raw: list) -> list[str]:
     """Normalise, de-noise and de-duplicate LLM-produced tags.

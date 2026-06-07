@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_pool, close_pool
-from .routers import auth, library, stream, events, recommendations, discover, vibe, internal, download
+from .routers import auth, library, stream, events, recommendations, discover, vibe, internal, download, subsonic
 
 
 @asynccontextmanager
@@ -37,6 +37,10 @@ app.include_router(discover.router, prefix="/api")
 app.include_router(vibe.router, prefix="/api")
 app.include_router(internal.router)
 app.include_router(download.router)
+# Subsonic protocol proxy — makes /rest/* work regardless of whether
+# the client is pointed at the public host (Caddy → Navidrome) or at
+# the kwhale API directly (this proxy → Navidrome).
+app.include_router(subsonic.router)
 
 
 @app.get("/healthz", tags=["health"])
