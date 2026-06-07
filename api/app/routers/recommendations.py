@@ -21,7 +21,7 @@ def _enrich(song: dict, score=None) -> dict:
     return {
         **song,
         "streamUrl": navidrome.stream_url(song["id"]),
-        "coverUrl": f"/library/cover/{song.get('coverArt', song['id'])}",
+        "coverUrl": navidrome.cover_url(song.get("coverArt", song["id"]), size=600),
         "rec_score": score,
     }
 

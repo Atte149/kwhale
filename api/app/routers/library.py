@@ -27,8 +27,8 @@ def _enrich_song(song: dict, features: dict | None) -> dict:
         "bitRate": song.get("bitRate"),
         "suffix": song.get("suffix"),
         "contentType": song.get("contentType"),
-        "streamUrl": f"/stream/{song['id']}",
-        "coverUrl": f"/library/cover/{song.get('coverArt', song['id'])}",
+        "streamUrl": navidrome.stream_url(song["id"]),
+        "coverUrl": navidrome.cover_url(song.get("coverArt", song["id"]), size=600),
     }
     if features:
         result["vibe"] = {
