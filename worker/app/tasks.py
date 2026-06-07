@@ -25,6 +25,14 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.update_all_taste_profiles",
         "schedule": 86400.0,
     },
+    # Auto-index: pick up tracks added to the library (download -> tag -> scan)
+    # and index them into track_features. index_all_tracks is idempotent -- it
+    # only queues tracks not already indexed (ok / failed-exhausted), so a
+    # steady-state run queues nothing. Closes the incoming -> track_features gap.
+    "index-new-tracks": {
+        "task": "app.tasks.index_all_tracks",
+        "schedule": 900.0,
+    },
 }
 
 

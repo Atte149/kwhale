@@ -29,6 +29,10 @@ def run():
 
     while True:
         for fp in INCOMING_DIR.rglob("*"):
+            # Skip the failed/ quarantine dir -- re-dispatching those files just
+            # fails again (SameFileError) and loops forever across restarts.
+            if "failed" in fp.relative_to(INCOMING_DIR).parts:
+                continue
             if (
                 fp.is_file()
                 and fp.suffix.lower() in AUDIO_EXTS
