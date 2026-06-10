@@ -232,18 +232,37 @@ async def icm_resolve(track_id: str, quality: str = "256K") -> str | None:
 
     Used for listen-before-download. Never cached (signed URLs expire).
     Cold tracks can take a while server-side, hence the generous timeout.
+
+    Handles ICM edge-cases that the simple one-shot call missed:
+      * 451 region_unavailable → follow required_region redirect (once)
+      * 502 track_download_failed → retry with fallback region
+    Both mirror the logic in worker/app/providers/icm.py::_resolve_track.
     """
-    r = await _http().post(
-        f"{ICM_BASE}/api/partner/track",
-        json={"trackId": track_id,
-              "region": settings.icm_default_region,
-              "quality": quality},
-        headers=_icm_headers(),
-        timeout=30.0,
-    )
-    if r.status_code != 200:
-        return None
-    return r.json().get("url")
+    tried: set[str] = set()
+    regions = [settings.icm_default_region, settings.icm_fallback_region]
+    for region in regions:
+        if region in tried:
+            continue
+        tried.add(region)
+        try:
+            r = await _http().post(
+                f"{ICM_BASE}/api/partner/track",
+                json={"trackId": track_id,
+                      "region": region,
+                      "quality": quality},
+                headers=_icm_headers(),
+                timeout=30.0,
+            )
+        except httpx.TimeoutException:
+            continue
+        if r.status_code == 200:
+            return r.json().get("url")
+        if r.status_code == 451:
+            req = (r.json() or {}).get("required_region") or (r.json() or {}).get("detail", {}).get("required_region")
+            if req and req not in tried:
+                regions.append(req)
+            continue
+    return None
 
 
 async def icm_lyrics(track_id: str) -> str | None:
