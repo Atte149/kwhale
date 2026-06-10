@@ -114,13 +114,13 @@ async def unified_search(
 
     errors = []
     if isinstance(local_res, Exception):
-        errors.append(f"library: {local_res}")
+        errors.append(f"library: {type(local_res).__name__}: {local_res}")
         local_res = {"songs": [], "albums": [], "artists": []}
     if isinstance(icm_res, Exception):
-        errors.append(f"icm: {icm_res}")
+        errors.append(f"icm: {type(icm_res).__name__}: {icm_res}")
         icm_res = {"tracks": [], "albums": [], "artists": []}
     if isinstance(ya_res, Exception):
-        errors.append(f"yandex: {ya_res}")
+        errors.append(f"yandex: {type(ya_res).__name__}: {ya_res}")
         ya_res = {"tracks": [], "albums": [], "artists": []}
 
     online_tracks = icm_res["tracks"] + ya_res["tracks"]

@@ -91,6 +91,7 @@ async def icm_search(q: str, limit: int = 20) -> dict:
         f"{ICM_BASE}/api/partner/search",
         params={"q": q, "region": settings.icm_default_region, "limit": limit},
         headers=_icm_headers(),
+        timeout=12.0,  # cold ICM searches can exceed the default client timeout
     )
     r.raise_for_status()
     items = r.json().get("items", [])
