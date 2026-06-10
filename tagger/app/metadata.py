@@ -1,4 +1,4 @@
-"""Metadata resolution pipeline: reads existing tags → AcoustID → SongRec fallback."""
+"""Metadata resolution pipeline: reads existing tags → SongRec (Shazam) → AcoustID fallback."""
 import json
 import subprocess
 from pathlib import Path 
@@ -15,16 +15,16 @@ def resolve_metadata(filepath: str) -> dict | None:
     if meta.get("title") and meta.get("artist"):
         return meta
 
-    acoustid_meta = _acoustid_lookup(filepath)
-    if acoustid_meta:
-        meta.update(acoustid_meta)
+    songrec_meta = _songrec_lookup(filepath)
+    if songrec_meta:
+        meta.update(songrec_meta)
         if meta.get("title") and meta.get("artist"):
             _write_tags(filepath, meta)
             return meta
 
-    songrec_meta = _songrec_lookup(filepath)
-    if songrec_meta:
-        meta.update(songrec_meta)
+    acoustid_meta = _acoustid_lookup(filepath)
+    if acoustid_meta:
+        meta.update(acoustid_meta)
         if meta.get("title") and meta.get("artist"):
             _write_tags(filepath, meta)
             return meta
