@@ -139,6 +139,7 @@ async def icm_album(album_id: str) -> dict | None:
         f"{ICM_BASE}/api/partner/album/{album_id}",
         params={"region": settings.icm_default_region},
         headers=_icm_headers(),
+        timeout=20.0,  # cold album fetches can exceed the default search timeout
     )
     if r.status_code == 404:
         return None
@@ -185,6 +186,7 @@ async def icm_artist(artist_id: str) -> dict | None:
         f"{ICM_BASE}/api/partner/artist/{artist_id}",
         params={"region": settings.icm_default_region},
         headers=_icm_headers(),
+        timeout=20.0,  # cold artist fetches can exceed the default search timeout
     )
     if r.status_code == 404:
         return None

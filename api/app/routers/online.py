@@ -18,7 +18,10 @@ router = APIRouter(tags=["online"])
 async def online_album(provider: str, album_id: str, user: str = Depends(current_user)):
     if provider != "icm":
         raise HTTPException(501, f"album browsing not supported for '{provider}'")
-    album = await online.icm_album(album_id)
+    try:
+        album = await online.icm_album(album_id)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "online catalog timed out, try again")
     if not album:
         raise HTTPException(404, "Album not found")
     await online.mark_in_library(album.get("tracks", []))
@@ -29,7 +32,10 @@ async def online_album(provider: str, album_id: str, user: str = Depends(current
 async def online_artist(provider: str, artist_id: str, user: str = Depends(current_user)):
     if provider != "icm":
         raise HTTPException(501, f"artist browsing not supported for '{provider}'")
-    artist = await online.icm_artist(artist_id)
+    try:
+        artist = await online.icm_artist(artist_id)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "online catalog timed out, try again")
     if not artist:
         raise HTTPException(404, "Artist not found")
     await online.mark_in_library(artist.get("topTracks", []))

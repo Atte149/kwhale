@@ -3,8 +3,6 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from ..auth import current_user
 from ..db import get_pool
-from ..tasks import celery_app
-import uuid
 
 router = APIRouter(prefix="/discover", tags=["discover"])
 
@@ -15,11 +13,9 @@ async def search_all(
     limit: int = Query(20, le=50),
     user: str = Depends(current_user),
 ):
-    import asyncio
-    loop = asyncio.get_event_loop()
-    task = celery_app.send_task("app.tasks.search_providers", args=[q, limit])
-    result = await loop.run_in_executor(None, lambda: task.get(timeout=15))
-    return {"query": q, "results": result or []}
+    from ..celery_helpers import poll_celery_task
+    result = await poll_celery_task("app.tasks.search_providers", args=[q, limit])
+    return {"query": q, "results": result}
 
 
 @router.get("/queue")
@@ -42,21 +38,10 @@ class AcquireRequest(BaseModel):
 
 @router.post("/acquire", status_code=202)
 async def acquire(body: AcquireRequest, user: str = Depends(current_user)):
-    task_id = str(uuid.uuid4())
+    from ..celery_helpers import fire_acquire_task
     pool = await get_pool()
-    query_str = body.query or f"{body.provider}:{body.provider_id}"
-    await pool.execute(
-        "INSERT INTO download_queue (id, user_id, query, provider, provider_id) "
-        "VALUES ($1,$2,$3,$4,$5)",
-        task_id, user, query_str, body.provider, body.provider_id,
-    )
-    celery_app.send_task(
-        "app.tasks.download_provider_track",
-        args=[body.provider, body.provider_id, task_id],
-        kwargs={"query": body.query},
-        task_id=task_id,
-    )
-    return {"task_id": task_id, "status": "queued"}
+    return await fire_acquire_task(
+        pool, user, body.provider, body.provider_id, body.query)
 
 
 @router.get("/acquire/{task_id}")
@@ -78,8 +63,6 @@ async def search_provider(
     limit: int = Query(20, le=50),
     user: str = Depends(current_user),
 ):
-    import asyncio
-    loop = asyncio.get_event_loop()
-    task = celery_app.send_task("app.tasks.search_provider", args=[provider, q, limit])
-    result = await loop.run_in_executor(None, lambda: task.get(timeout=15))
-    return {"query": q, "provider": provider, "results": result or []}
+    from ..celery_helpers import poll_celery_task
+    result = await poll_celery_task("app.tasks.search_provider", args=[provider, q, limit])
+    return {"query": q, "provider": provider, "results": result}
