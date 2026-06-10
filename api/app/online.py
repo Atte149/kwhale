@@ -226,6 +226,25 @@ async def icm_artist(artist_id: str) -> dict | None:
     return out
 
 
+async def icm_resolve(track_id: str, quality: str = "256K") -> str | None:
+    """Resolve a playable signed stream URL for an ICM track (valid ~10 min).
+
+    Used for listen-before-download. Never cached (signed URLs expire).
+    Cold tracks can take a while server-side, hence the generous timeout.
+    """
+    r = await _http().post(
+        f"{ICM_BASE}/api/partner/track",
+        json={"trackId": track_id,
+              "region": settings.icm_default_region,
+              "quality": quality},
+        headers=_icm_headers(),
+        timeout=30.0,
+    )
+    if r.status_code != 200:
+        return None
+    return r.json().get("url")
+
+
 async def icm_lyrics(track_id: str) -> str | None:
     """Synced LRC lyrics for an ICM track id, or None."""
     r = await _http().get(

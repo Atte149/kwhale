@@ -42,6 +42,21 @@ async def online_artist(provider: str, artist_id: str, user: str = Depends(curre
     return artist
 
 
+@router.get("/online/resolve/{provider}/{track_id}")
+async def online_resolve(provider: str, track_id: str,
+                         user: str = Depends(current_user)):
+    """Short-lived stream URL for listen-before-download (ICM only)."""
+    if provider != "icm":
+        raise HTTPException(501, f"resolve not supported for '{provider}'")
+    try:
+        url = await online.icm_resolve(track_id)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "resolve timed out, try again")
+    if not url:
+        raise HTTPException(404, "track not resolvable")
+    return {"stream_url": url}
+
+
 @router.get("/lyrics/{navidrome_id}")
 async def lyrics_for_track(navidrome_id: str, user: str = Depends(current_user)):
     """Lyrics for a library track. Preference: synced LRC > plain text.
