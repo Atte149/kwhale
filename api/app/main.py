@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_pool, close_pool
-from .routers import auth, library, stream, events, recommendations, discover, vibe, internal, download, subsonic
+from .routers import auth, library, stream, events, recommendations, discover, vibe, internal, download, subsonic, search, online
 
 
 @asynccontextmanager
@@ -35,6 +35,8 @@ app.include_router(events.router, prefix="/api")
 app.include_router(recommendations.router, prefix="/api")
 app.include_router(discover.router, prefix="/api")
 app.include_router(vibe.router, prefix="/api")
+app.include_router(search.router, prefix="/api")
+app.include_router(online.router, prefix="/api")
 app.include_router(internal.router)
 app.include_router(download.router)
 # Subsonic protocol proxy — makes /rest/* work regardless of whether
