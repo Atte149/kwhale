@@ -1,9 +1,13 @@
-"""Metadata resolution pipeline: reads existing tags → MusicBrainz fallback."""
+"""Metadata resolution pipeline: reads existing tags → AcoustID → SongRec fallback."""
+import json
 import subprocess
-from pathlib import Path
+from pathlib import Path 
 
 import mutagen
 import httpx
+
+_songrec_fail_count = 0
+_SONGREC_MAX_FAILS = 3
 
 
 def resolve_metadata(filepath: str) -> dict | None:
@@ -11,10 +15,16 @@ def resolve_metadata(filepath: str) -> dict | None:
     if meta.get("title") and meta.get("artist"):
         return meta
 
-    # MusicBrainz lookup by AcoustID fingerprint
     acoustid_meta = _acoustid_lookup(filepath)
     if acoustid_meta:
         meta.update(acoustid_meta)
+        if meta.get("title") and meta.get("artist"):
+            _write_tags(filepath, meta)
+            return meta
+
+    songrec_meta = _songrec_lookup(filepath)
+    if songrec_meta:
+        meta.update(songrec_meta)
         if meta.get("title") and meta.get("artist"):
             _write_tags(filepath, meta)
             return meta
@@ -94,6 +104,30 @@ def _acoustid_lookup(filepath: str) -> dict | None:
             "year": str(release.get("date", {}).get("year", "")),
         }
     except Exception:
+        return None
+
+
+def _songrec_lookup(filepath: str) -> dict | None:
+    global _songrec_fail_count
+    if _songrec_fail_count >= _SONGREC_MAX_FAILS:
+        return None
+    try:
+        result = subprocess.run(
+            ["songrec", "--file", filepath, "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            _songrec_fail_count += 1
+            return None
+        data = json.loads(result.stdout)
+        _songrec_fail_count = 0
+        track = data.get("track", {})
+        return {
+            "title": track.get("title", ""),
+            "artist": track.get("subtitle", ""),
+        }
+    except Exception:
+        _songrec_fail_count += 1
         return None
 
 
