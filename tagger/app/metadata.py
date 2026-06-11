@@ -1,23 +1,30 @@
-"""Metadata resolution pipeline: reads existing tags → SongRec (Shazam) → AcoustID fallback."""
+"""Metadata resolution pipeline: reads existing tags → Shazam (via SOCKS5 VPN) → AcoustID fallback."""
 import json
+import os
 import subprocess
-from pathlib import Path 
+from pathlib import Path
 
 import mutagen
 import httpx
 
-_songrec_fail_count = 0
-_SONGREC_MAX_FAILS = 3
+ACOUSTID_CLIENT = "v8pQ6oyB"
+SHAZAM_PROXY = os.environ.get("SHAZAM_PROXY", "socks5h://singbox:2080")
 
 
-def resolve_metadata(filepath: str) -> dict | None:
+def resolve_metadata(filepath: str, force: bool = False, meta_hint: dict | None = None) -> dict | None:
     meta = _read_existing_tags(filepath)
-    if meta.get("title") and meta.get("artist"):
+    if meta_hint:
+        if meta_hint.get("title"):
+            meta["title"] = meta_hint["title"]
+        if meta_hint.get("artist"):
+            meta["artist"] = meta_hint["artist"]
+    if not force and meta.get("title") and meta.get("artist"):
+        _write_tags(filepath, meta)
         return meta
 
-    songrec_meta = _songrec_lookup(filepath)
-    if songrec_meta:
-        meta.update(songrec_meta)
+    shazam_meta = _shazam_lookup(filepath)
+    if shazam_meta:
+        meta.update(shazam_meta)
         if meta.get("title") and meta.get("artist"):
             _write_tags(filepath, meta)
             return meta
@@ -63,7 +70,6 @@ def _acoustid_lookup(filepath: str) -> dict | None:
         )
         if result.returncode != 0:
             return None
-        import json
         data = json.loads(result.stdout)
         duration = data.get("duration")
         fingerprint = data.get("fingerprint")
@@ -73,7 +79,7 @@ def _acoustid_lookup(filepath: str) -> dict | None:
         r = httpx.get(
             "https://api.acoustid.org/v2/lookup",
             params={
-                "client": "kwhale",
+                "client": ACOUSTID_CLIENT,
                 "duration": int(duration),
                 "fingerprint": fingerprint,
                 "meta": "recordings+releases",
@@ -95,10 +101,7 @@ def _acoustid_lookup(filepath: str) -> dict | None:
 
         return {
             "title": rec.get("title", ""),
-            # Full credit (incl. featured artists) goes in `artist`...
             "artist": ", ".join(a.get("name", "") for a in artists),
-            # ...but group by the primary artist so featured tracks don't each
-            # collapse into one combined-string artist card.
             "albumartist": artists[0].get("name", "") if artists else "",
             "album": release.get("title", ""),
             "year": str(release.get("date", {}).get("year", "")),
@@ -107,27 +110,43 @@ def _acoustid_lookup(filepath: str) -> dict | None:
         return None
 
 
-def _songrec_lookup(filepath: str) -> dict | None:
-    global _songrec_fail_count
-    if _songrec_fail_count >= _SONGREC_MAX_FAILS:
-        return None
+def _shazam_lookup(filepath: str) -> dict | None:
     try:
-        result = subprocess.run(
-            ["songrec", "--file", filepath, "--json"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            _songrec_fail_count += 1
+        from shazamio import Shazam
+        from aiohttp import ClientSession, ClientTimeout
+        from aiohttp_socks import ProxyConnector
+        import asyncio
+
+        async def _recognize():
+            connector = ProxyConnector.from_url(SHAZAM_PROXY)
+            timeout = ClientTimeout(total=30)
+            async with ClientSession(connector=connector, timeout=timeout) as session:
+                s = Shazam()
+
+                async def _proxy_request(method, url, **kwargs):
+                    async with session.request(method, url, **kwargs) as resp:
+                        text = await resp.text()
+                        if resp.status == 200:
+                            return json.loads(text)
+                        raise Exception(f"Shazam HTTP {resp.status}: {text[:200]}")
+
+                s.http_client.request = _proxy_request
+                return await s.recognize(filepath)
+
+        out = asyncio.run(_recognize())
+        track = out.get("track", {})
+        title = track.get("title", "")
+        artist = track.get("subtitle", "")
+        if not title or not artist:
             return None
-        data = json.loads(result.stdout)
-        _songrec_fail_count = 0
-        track = data.get("track", {})
+        genre_data = track.get("genres", {})
+        genre = genre_data.get("primary", "") if isinstance(genre_data, dict) else ""
         return {
-            "title": track.get("title", ""),
-            "artist": track.get("subtitle", ""),
+            "title": title,
+            "artist": artist,
+            "genre": genre,
         }
     except Exception:
-        _songrec_fail_count += 1
         return None
 
 
@@ -146,6 +165,8 @@ def _write_tags(filepath: str, meta: dict):
             mf["albumartist"] = [meta["albumartist"]]
         if meta.get("year"):
             mf["date"] = [meta["year"]]
+        if meta.get("genre"):
+            mf["genre"] = [meta["genre"]]
         mf.save()
     except Exception:
         pass

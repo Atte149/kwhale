@@ -30,6 +30,21 @@ _scan_debounce: asyncio.Task | None = None
 
 class TagRequest(BaseModel):
     filepath: str
+    force: bool = False
+
+
+def _read_metadata_json(filepath: Path) -> dict | None:
+    meta_path = filepath.parent / "metadata.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        import json
+        data = json.loads(meta_path.read_text())
+        if data.get("title") or data.get("artist"):
+            return data
+    except Exception:
+        pass
+    return None
 
 
 @app.get("/healthz")
@@ -39,17 +54,16 @@ async def health():
 
 @app.post("/tag")
 async def tag_file(req: TagRequest, bg: BackgroundTasks):
-    bg.add_task(_process_file, Path(req.filepath))
-    return {"status": "queued", "filepath": req.filepath}
+    bg.add_task(_process_file, Path(req.filepath), req.force)
+    return {"status": "queued", "filepath": req.filepath, "force": req.force}
 
 
-async def _process_file(filepath: Path):
+async def _process_file(filepath: Path, force: bool = False):
     async with _semaphore:
-        # Files acquired via /discover land in incoming/<task_id>/<file>; the
-        # parent dir name is the download_queue id we report progress back to.
         task_id = filepath.parent.name
         try:
-            meta = await asyncio.to_thread(resolve_metadata, str(filepath))
+            meta_hint = _read_metadata_json(filepath)
+            meta = await asyncio.to_thread(resolve_metadata, str(filepath), force, meta_hint)
             if not meta:
                 failed = INCOMING_DIR / "failed" / filepath.name
                 failed.parent.mkdir(parents=True, exist_ok=True)

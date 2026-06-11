@@ -41,10 +41,12 @@ services:
       WORKER_TAGGER_URL: http://tagger:8093
       MCP_URL: http://mcp:8090
       LIBRARY_DIR: /data/library
+      MUSIC_INCOMING_DIR: /data/incoming
       EMBEDDING_API_URL: http://embedding:8000/v1/embeddings
     volumes:
       - ${DATA_ROOT}/music/library:/data/library:ro
       - ${DATA_ROOT}/navidrome:/data/navidrome:ro
+      - ${DATA_ROOT}/music/incoming:/data/incoming
       - /files/kwhale/apk:/apk:ro
     depends_on:
       navidrome:
@@ -122,6 +124,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       YANDEX_MUSIC_TOKEN: ${YANDEX_MUSIC_TOKEN:-}
       TAGGER_MAX_CONCURRENT: "20"
+      SHAZAM_PROXY: socks5://singbox:2080
     volumes:
       - ${DATA_ROOT}/music:/data
     depends_on:
@@ -134,6 +137,7 @@ services:
       retries: 3
     networks:
       - kwhale_net
+      - singbox_net
 
   tagger-watcher:
     build: ./tagger
@@ -224,4 +228,6 @@ networks:
     name: kwhale_net
     driver: bridge
   caddy_default:
+    external: true
+  singbox_net:
     external: true
