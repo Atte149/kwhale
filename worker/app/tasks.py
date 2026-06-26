@@ -5,6 +5,7 @@ from pathlib import Path
 
 import psycopg2
 from celery import Celery
+from celery.schedules import crontab
 
 from .providers.registry import get_providers, get_provider
 from .indexer import index_track as _index_track
@@ -24,6 +25,11 @@ celery_app.conf.beat_schedule = {
     "update-taste-profiles-daily": {
         "task": "app.tasks.update_all_taste_profiles",
         "schedule": 86400.0,
+    },
+    "generate-recommendations-daily": {
+        "task": "app.tasks.generate_recommendations",
+        "schedule": crontab(hour=4, minute=0),
+        "args": ("vladik", "hybrid"),
     },
     # Auto-index: pick up tracks added to the library (download -> tag -> scan)
     # and index them into track_features. index_all_tracks is idempotent -- it

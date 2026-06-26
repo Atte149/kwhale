@@ -98,6 +98,7 @@ def _retrieve_candidates(seed_ids: list[str], exclude_ids: set[str],
     try:
         with _get_conn() as conn:
             with conn.cursor() as cur:
+                cur.execute("SET LOCAL hnsw.ef_search = 300")
                 cur.execute(
                     """
                     WITH centroid AS (
