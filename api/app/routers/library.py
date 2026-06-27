@@ -47,7 +47,8 @@ async def search(
     limit: int = Query(30, le=100),
     user: str = Depends(current_user),
 ):
-    results = await navidrome.search(q, song_count=limit)
+    mf_id = await navidrome.get_first_library_id(user)
+    results = await navidrome.search(q, song_count=limit, music_folder_id=mf_id)
     songs = results.get("song", [])
 
     pool = await get_pool()
@@ -71,7 +72,8 @@ async def list_albums(
     offset: int = 0,
     user: str = Depends(current_user),
 ):
-    albums = await navidrome.get_albums(size=size, offset=offset)
+    mf_id = await navidrome.get_first_library_id(user)
+    albums = await navidrome.get_albums(size=size, offset=offset, music_folder_id=mf_id)
     return {"albums": albums}
 
 
@@ -85,7 +87,8 @@ async def get_album(album_id: str, user: str = Depends(current_user)):
 
 @router.get("/artists")
 async def list_artists(user: str = Depends(current_user)):
-    artists = await navidrome.get_artists()
+    mf_id = await navidrome.get_first_library_id(user)
+    artists = await navidrome.get_artists(music_folder_id=mf_id)
     return {"artists": artists}
 
 

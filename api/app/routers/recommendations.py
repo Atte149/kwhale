@@ -26,8 +26,10 @@ def _enrich(song: dict, score=None) -> dict:
     }
 
 
-async def _random(limit: int, genre: str | None = None) -> list[dict]:
-    songs = await navidrome.get_random_songs(size=limit, genre=genre)
+async def _random(limit: int, genre: str | None = None,
+                  user: str | None = None) -> list[dict]:
+    mf_id = await navidrome.get_first_library_id(user) if user else None
+    songs = await navidrome.get_random_songs(size=limit, genre=genre, music_folder_id=mf_id)
     return [_enrich(s) for s in songs]
 
 
@@ -42,12 +44,12 @@ async def get_recommendations(
 ):
     # Genre — straight from Navidrome metadata
     if type == "genre" and genre:
-        songs = await _random(limit, genre=genre)
+        songs = await _random(limit, genre=genre, user=user)
         return {"tracks": songs, "type": "genre", "genre": genre}
 
     # Discovery — random fresh picks (works without history/indexing)
     if type == "discovery":
-        songs = await _random(limit)
+        songs = await _random(limit, user=user)
         return {
             "tracks": songs,
             "type": "discovery",
@@ -72,7 +74,7 @@ async def get_recommendations(
 
     if not songs:
         celery_app.send_task("app.tasks.generate_recommendations", args=[user, "hybrid"])
-        cold = await _random(limit)
+        cold = await _random(limit, user=user)
         return {
             "tracks": cold,
             "type": "cold_start",

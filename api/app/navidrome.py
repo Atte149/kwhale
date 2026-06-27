@@ -1,9 +1,14 @@
 """Thin async client wrapping Navidrome's OpenSubsonic API.
 Used internally by the API to proxy library calls to Navidrome.
-The client is intentionally narrow — we only call what we need.
+
+All Subsonic calls use admin credentials (from env), but accept an optional
+``music_folder_id`` to scope results to a specific library — this is how
+per-user library isolation works even though the API authenticates as admin.
+The caller resolves the user's library IDs via ``get_user_library_ids()``.
 """
 import hashlib
 import secrets
+import time
 from typing import Any
 
 import httpx
@@ -38,9 +43,12 @@ def _auth_params() -> dict:
     }
 
 
-async def _call(endpoint: str, **params) -> dict[str, Any]:
+async def _call(endpoint: str, music_folder_id: int | None = None, **params) -> dict[str, Any]:
+    auth = _auth_params()
+    if music_folder_id is not None:
+        auth["musicFolderId"] = str(music_folder_id)
     r = await _get_client().get(
-        f"/rest/{endpoint}", params={**_auth_params(), **params}
+        f"/rest/{endpoint}", params={**auth, **params}
     )
     r.raise_for_status()
     resp = r.json().get("subsonic-response", {})
@@ -49,9 +57,85 @@ async def _call(endpoint: str, **params) -> dict[str, Any]:
     return resp
 
 
-async def search(query: str, artist_count=0, album_count=0, song_count=50) -> dict:
+# ── User → library resolution ─────────────────────────────────────────────────
+
+_admin_jwt_cache: tuple[str, float] | None = None
+
+
+async def _get_admin_jwt() -> str | None:
+    """Get a Navidrome admin JWT token (cached for ~50 minutes)."""
+    global _admin_jwt_cache
+    if _admin_jwt_cache and time.time() - _admin_jwt_cache[1] < 3000:
+        return _admin_jwt_cache[0]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{settings.navidrome_url}/auth/login",
+                json={
+                    "username": settings.navidrome_username,
+                    "password": settings.navidrome_password,
+                },
+            )
+            if r.status_code != 200:
+                return None
+            token = r.json().get("token", "")
+            if token:
+                _admin_jwt_cache = (token, time.time())
+            return token
+    except Exception:
+        return None
+
+
+async def get_user_library_ids(username: str) -> list[int]:
+    """Resolve a Navidrome username to their accessible library IDs.
+
+    Returns an empty list for admin users (they see all libraries — no
+    filtering needed) or on any error.
+    """
+    if username == settings.navidrome_username:
+        return []
+
+    try:
+        admin_jwt = await _get_admin_jwt()
+        if not admin_jwt:
+            return []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{settings.navidrome_url}/api/user",
+                headers={"x-nd-authorization": f"Bearer {admin_jwt}"},
+            )
+            if r.status_code != 200:
+                return []
+            users = r.json()
+            user = next((u for u in users if u["userName"] == username), None)
+            if not user:
+                return []
+
+            r2 = await client.get(
+                f"{settings.navidrome_url}/api/user/{user['id']}/library",
+                headers={"x-nd-authorization": f"Bearer {admin_jwt}"},
+            )
+            if r2.status_code != 200:
+                return []
+            libs = r2.json()
+            return [l["id"] for l in libs]
+    except Exception as e:
+        print(f"get_user_library_ids error for {username}: {e}")
+        return []
+
+
+async def get_first_library_id(username: str) -> int | None:
+    """Convenience: return the first (usually only) library ID for a user."""
+    ids = await get_user_library_ids(username)
+    return ids[0] if ids else None
+
+
+async def search(query: str, artist_count=0, album_count=0, song_count=50,
+                 music_folder_id: int | None = None) -> dict:
     data = await _call(
         "search3.view",
+        music_folder_id=music_folder_id,
         query=query,
         artistCount=artist_count,
         albumCount=album_count,
@@ -60,16 +144,17 @@ async def search(query: str, artist_count=0, album_count=0, song_count=50) -> di
     return data.get("searchResult3", {})
 
 
-async def get_random_songs(size=50, genre=None) -> list[dict]:
+async def get_random_songs(size=50, genre=None,
+                           music_folder_id: int | None = None) -> list[dict]:
     params = {"size": size}
     if genre:
         params["genre"] = genre
-    data = await _call("getRandomSongs.view", **params)
+    data = await _call("getRandomSongs.view", music_folder_id=music_folder_id, **params)
     return data.get("randomSongs", {}).get("song", [])
 
 
-async def get_starred_songs() -> list[dict]:
-    data = await _call("getStarred2.view")
+async def get_starred_songs(music_folder_id: int | None = None) -> list[dict]:
+    data = await _call("getStarred2.view", music_folder_id=music_folder_id)
     return data.get("starred2", {}).get("song", [])
 
 
@@ -88,8 +173,10 @@ async def get_song(song_id: str) -> dict | None:
     return data.get("song")
 
 
-async def get_albums(size=500, offset=0, type="alphabeticalByName") -> list[dict]:
-    data = await _call("getAlbumList2.view", type=type, size=size, offset=offset)
+async def get_albums(size=500, offset=0, type="alphabeticalByName",
+                     music_folder_id: int | None = None) -> list[dict]:
+    data = await _call("getAlbumList2.view", music_folder_id=music_folder_id,
+                       type=type, size=size, offset=offset)
     return data.get("albumList2", {}).get("album", [])
 
 
@@ -98,8 +185,8 @@ async def get_album(album_id: str) -> dict | None:
     return data.get("album")
 
 
-async def get_artists() -> list[dict]:
-    data = await _call("getArtists.view")
+async def get_artists(music_folder_id: int | None = None) -> list[dict]:
+    data = await _call("getArtists.view", music_folder_id=music_folder_id)
     indices = data.get("artists", {}).get("index", [])
     artists = []
     for idx in indices:
