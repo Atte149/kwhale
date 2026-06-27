@@ -425,3 +425,66 @@ def scan_library_tags() -> dict:
         "bad_tracks": [r for r in results if r["classification"] == "bad"][:100],
     }
     return stats
+
+
+@celery_app.task(name="app.tasks.split_library_artists")
+def split_library_artists(move_files: bool = False, limit: int | None = None) -> dict:
+    """Split merged artist tags into multi-value `artists` tags.
+
+    Finds tracks where `artist` contains separators (&, /, ;, feat., etc.)
+    but `artists` tag is missing. Splits, writes multi-value tag, sets
+    albumartist to primary artist, and updates all_artists in DB.
+    """
+    from .artist_splitter import split_library_artists as _split
+
+    stats = _split(move_files=move_files, limit=limit)
+
+    # Trigger Navidrome rescan
+    try:
+        import hashlib, secrets, httpx
+        salt = secrets.token_hex(6)
+        token = hashlib.md5(
+            f"{os.environ.get('NAVIDROME_PASSWORD', '')}{salt}".encode()
+        ).hexdigest()
+        nav_url = os.environ.get("NAVIDROME_URL", "http://navidrome:4533")
+        nav_user = os.environ.get("NAVIDROME_USERNAME", "admin")
+        with httpx.Client(timeout=10.0) as client:
+            client.get(
+                f"{nav_url}/rest/startScan.view",
+                params={"u": nav_user, "t": token, "s": salt,
+                        "v": "1.16.1", "c": "kwhale-split", "f": "json"},
+            )
+    except Exception as e:
+        print(f"Navidrome scan trigger failed: {e}")
+
+    print(f"Artist split complete: {stats}")
+    return stats
+
+
+@celery_app.task(name="app.tasks.transliterate_library")
+def transliterate_library(dry_run: bool = False, limit: int | None = None) -> dict:
+    """Rename transliterated artist folders to Cyrillic canonical form."""
+    from .translit_rename import transliterate_library as _translit
+
+    stats = _translit(dry_run=dry_run, limit=limit)
+
+    # Trigger Navidrome rescan
+    try:
+        import hashlib, secrets, httpx
+        salt = secrets.token_hex(6)
+        token = hashlib.md5(
+            f"{os.environ.get('NAVIDROME_PASSWORD', '')}{salt}".encode()
+        ).hexdigest()
+        nav_url = os.environ.get("NAVIDROME_URL", "http://navidrome:4533")
+        nav_user = os.environ.get("NAVIDROME_USERNAME", "admin")
+        with httpx.Client(timeout=10.0) as client:
+            client.get(
+                f"{nav_url}/rest/startScan.view",
+                params={"u": nav_user, "t": token, "s": salt,
+                        "v": "1.16.1", "c": "kwhale-translit", "f": "json"},
+            )
+    except Exception as e:
+        print(f"Navidrome scan trigger failed: {e}")
+
+    print(f"Transliteration complete: {stats}")
+    return stats

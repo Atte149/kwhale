@@ -112,6 +112,11 @@ def http_post(url: str, data: dict, headers: dict | None = None, timeout: int = 
         return 0, str(e)
 
 
+def http_post_json(url: str, data: dict, headers: dict | None = None, timeout: int = 10) -> tuple[int, str]:
+    """Alias for http_post — returns (status_code, body_text)."""
+    return http_post(url, data, headers, timeout)
+
+
 # ───────────────────────── commands ─────────────────────────
 
 
@@ -311,7 +316,7 @@ def cmd_token(args: list[str]) -> None:
 
 
 def cmd_create_user(args: list[str]) -> None:
-    """Create a Navidrome user via Subsonic API.
+    """Create a Navidrome user via Native REST API.
 
     Usage: kwhalectl create-user <username> [password]
     """
@@ -325,18 +330,32 @@ def cmd_create_user(args: list[str]) -> None:
     admin = env.get("NAVIDROME_USERNAME", "admin")
     pw = env.get("NAVIDROME_PASSWORD", "")
 
-    import hashlib, time, getpass
+    import getpass
     password = args[1] if len(args) > 1 else getpass.getpass("Password: ")
 
-    salt = str(time.time())
-    token = hashlib.md5((pw + salt).encode()).hexdigest()
-    url = (f"http://127.0.0.1:{nav_port}/rest/createUser"
-           f"?u={admin}&t={token}&s={salt}&f=json"
-           f"&username={username}&password={password}&adminRole=false")
+    # Step 1: Get JWT token from Navidrome
+    code, body = http_post_json(
+        f"http://127.0.0.1:{nav_port}/auth/login",
+        {"username": admin, "password": pw},
+    )
+    if code != 200:
+        print(f"  [FAIL] Admin login ({code}): {body}")
+        sys.exit(1)
+    jwt = json.loads(body).get("token", "")
 
-    code, body = http_get(url)
-    if code == 200 and '"error"' not in body:
-        print(f"  [OK] User '{username}' created")
+    # Step 2: Create user via Native REST API
+    code, body = http_post(
+        f"http://127.0.0.1:{nav_port}/api/user",
+        {"userName": username, "password": password, "name": username, "isAdmin": False},
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    if code == 200:
+        user_id = ""
+        try:
+            user_id = json.loads(body).get("id", "")
+        except Exception:
+            pass
+        print(f"  [OK] User '{username}' created (id: {user_id})")
     else:
         print(f"  [FAIL] CreateUser ({code}): {body}")
 
