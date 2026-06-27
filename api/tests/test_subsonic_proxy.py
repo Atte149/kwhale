@@ -30,7 +30,7 @@ async def test_proxy_forwards_get_with_query_string():
             headers={"content-type": "application/json; charset=utf-8"},
         )
         req = httpx.Request(
-            "GET", "http://api/rest/search3?query=BabyMetal&u=vladik&t=abc&s=xyz&f=json"
+            "GET", "http://api/rest/search3?query=BabyMetal&u=admin&t=abc&s=xyz&f=json"
         )
         response = await proxy_subsonic("search3", req)
 

@@ -1,82 +1,61 @@
-# KWhale
+# 🐋 KWhale
 
-**Self-hosted music streaming service with AI-powered recommendations**
+**Self-hosted music streaming with AI-powered recommendations**
 
-KWhale combines a robust media server with intelligent music discovery. Stream your library, get personalized recommendations based on audio features and listening patterns, and discover new music from multiple sources — all running on your own infrastructure.
+KWhale combines [Navidrome](https://github.com/navidrome/navidrome) with an AI
+recommendation engine, source plugins, and a beautiful Flutter mobile client.
+Stream your library, get personalized recommendations based on audio features
+and listening patterns, discover new music from multiple streaming services,
+and organize your collection — all running on your own infrastructure.
 
-## ✨ Key Features
+## ✨ Features
 
-- **Smart Recommendations** — Hybrid collaborative + content-based filtering with personalized scoring
-- **Audio Analysis** — Essentia-powered feature extraction (BPM, energy, valence, key, timbre)
-- **Semantic Search** — Find songs by lyric meaning using text embeddings
-- **LLM-Powered Agent** — Natural language playlist generation with tool-calling
-- **Rich Telemetry** — Track completion rates, skip patterns, and time-of-day preferences
-- **Source Plugins** — Search and download from multiple streaming services (ICM, Yandex, Deezer)
-- **Auto-Tagging** — Automatic file organization and metadata enrichment
-- **MCP Server** — AI agent integration via Model Context Protocol
-- **OpenSubsonic Compatible** — Works with existing Subsonic clients
-
-## 🏗️ Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Client (Flutter app, Subsonic clients)                          │
-│  Bearer token authentication, JSON API                           │
-└──────────────┬───────────────────────────────────────────────────┘
-               │ HTTP/JSON
-┌──────────────▼───────────────────────────────────────────────────┐
-│  FastAPI (kwhale-api) :19000                                      │
-│  /library/*   → proxy to Navidrome                               │
-│  /stream/*    → 302 redirect to Navidrome                        │
-│  /events      → ingest playback telemetry                        │
-│  /recs        → personalized recommendations                     │
-│  /discover    → search remote sources                            │
-│  /vibe/{id}   → audio features + vibe tags                      │
-└──┬──────────────────────────────┬────────────────────────────────┘
-   │ internal HTTP                │ SQL
-┌──▼──────────────────┐  ┌───────▼───────────────────────────────┐
-│  Navidrome :4535    │  │  PostgreSQL + pgvector                 │
-│  - Media streaming  │  │  - Track features & embeddings         │
-│  - Transcoding      │  │  - Playback events                     │
-│  - OpenSubsonic API │  │  - Recommendations                     │
-└─────────────────────┘  │  - Download queue                      │
-         │               └────────┬───────────────────────────────┘
-         │ reads library          │
-┌────────▼──────────┐    ┌───────▼────────────────────────────────┐
-│  Music Library    │◄───┤  Worker (Celery)                       │
-│  Organized files  │    │  - Essentia audio analysis             │
-└───────────────────┘    │  - Text embeddings (bge-m3)            │
-                         │  - LLM vibe tags                       │
-                         │  - Recommendation generation           │
-                         │  - Source plugins (download)           │
-                         └────────────────────────────────────────┘
-```
+- **Smart Recommendations** — Hybrid content-based + personalized scoring with
+  pgvector retrieval and LLM curation. Per-user taste profiles.
+- **Audio Analysis** — Essentia-powered feature extraction (BPM, energy,
+  valence, key) + bge-m3 lyrics embeddings for semantic search.
+- **Source Plugins** — Search and download from streaming services (ICM,
+  Yandex Music). Extensible plugin system.
+- **Auto-Tagging** — Automatic metadata resolution via Shazam + AcoustID.
+  Smart library retagging with quality classification.
+- **Artist Tools** — Split merged artist tags, transliterate Latin → Cyrillic
+  folder names, enrich artist cards with streaming tracks.
+- **Multi-Tenant** — Isolated libraries per user via Navidrome Multi-Library.
+  Each client sees only their own music.
+- **Library Import** — Paste a track list (from Spotify, Apple Music, CSV) and
+  KWhale downloads missing tracks automatically.
+- **MCP Server** — AI agent integration via Model Context Protocol.
+- **OpenSubsonic Compatible** — Works with existing Subsonic clients.
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Docker and Docker Compose
-- 8GB+ RAM
-- 10GB+ disk space
-
-### Installation
+### One-command install
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/kwhale.git
+curl -fsSL https://raw.githubusercontent.com/Atte149/kwhale/main/install.py | python3 -
+```
+
+The installer will:
+1. Clone the repo and generate all `.env` files
+2. Create data directories and Docker networks
+3. Build and start all services
+4. Wait for health checks
+5. Print your API token and next steps
+
+### Manual install
+
+```bash
+git clone https://github.com/Atte149/kwhale.git
 cd kwhale
 
 # Configure environment
-cp .env.example .env
-nano .env  # Set DATA_ROOT, passwords, credentials
-
-# Set up API keys
+cp .env.example .env       # edit with your passwords
 cp api/.env.example api/.env
 cp worker/.env.example worker/.env
-nano api/.env  # Add OPENAI_API_KEY for AI features
+cp mcp/.env.example mcp/.env
 
-# Run setup
-bash scripts/setup.sh
+# Create data dirs
+mkdir -p kwhale-data/{music/library,music/incoming,navidrome,postgres,redis}
 
 # Build and start
 docker compose build
@@ -86,144 +65,113 @@ docker compose up -d
 curl http://localhost:19000/healthz
 ```
 
-### First Steps
+### Prerequisites
 
-1. **Set up Navidrome**: Open http://localhost:4535 and create admin account
-2. **Add music**: Copy files to `./data/music/library/` or mount existing library
-3. **Get API token**: `POST /api/auth/login` with your credentials
-4. **Start indexing**: `POST /api/vibe/index-all` to analyze your library
+- Docker + Docker Compose v2
+- 8 GB+ RAM (embedding model + Essentia)
+- 10 GB+ disk space
 
-See [docs/INSTALLATION.md](docs/INSTALLATION.md) for detailed setup instructions.
+## 📱 Mobile Client
 
-## 📚 Documentation
+KWhale has a Flutter Android client (fork of [Musly](https://github.com/dddevid/Musly)):
 
-- [Installation Guide](docs/INSTALLATION.md) — Complete setup walkthrough
-- [Architecture](ARCHITECTURE.md) — System design and components
-- [API Reference](docs/API.md) — Complete API documentation
-- [Development Guide](docs/DEVELOPMENT.md) — Contributing and development setup
-- [Configuration](docs/CONFIGURATION.md) — Environment variables and options
+```bash
+# Download the latest APK from your server:
+curl -O http://localhost:19000/download/latest
+```
 
-## 🎯 How It Works
+Or build from source:
+```bash
+cd kwhale-client
+flutter build apk --release
+```
 
-### Recommendation Engine
+**Client repo:** [Atte149/kwhale-client](https://github.com/Atte149/kwhale-client)
 
-KWhale uses a three-layer recommendation system:
+## 🏗 Architecture
 
-1. **Candidate Generation**
-   - Collaborative filtering (ALS on playback history)
-   - Content-based (audio feature similarity via pgvector)
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Client (Flutter app, Subsonic clients)                          │
+└──────────────┬───────────────────────────────────────────────────┘
+               │ HTTP/JSON
+┌──────────────▼───────────────────────────────────────────────────┐
+│  FastAPI (kwhale-api) :19000                                      │
+│  /library/*  → proxy to Navidrome (per-user library isolation)   │
+│  /recs       → personalized recommendations                       │
+│  /discover   → search remote sources + acquire                   │
+│  /vibe/{id}  → audio features + vibe tags                        │
+└──┬──────────────────────────────┬────────────────────────────────┘
+   │ Subsonic API                 │ SQL
+┌──▼──────────────────┐  ┌───────▼───────────────────────────────┐
+│  Navidrome :4535    │  │  PostgreSQL 16 + pgvector              │
+│  Multi-Library      │  │  track_features, playback_events,     │
+│  Per-user access    │  │  recommendations, artist_aliases      │
+└─────────────────────┘  └────────┬──────────────────────────────┘
+          │                       │
+┌─────────▼──────────┐  ┌────────▼──────────────────────────────┐
+│  Music Library     │  │  Worker (Celery)                       │
+│  /music/<user>/    │  │  Essentia · bge-m3 · LLM vibe tags     │
+└────────────────────┘  │  Recommender · Source plugins          │
+                        │  Retagging · Artist split · Translit   │
+                        └────────────────────────────────────────┘
+```
 
-2. **Personalization Layer**
-   - Favorite tracks boost
-   - Play frequency weighting
-   - Completion rate scoring
-   - Time-of-day affinity
-   - Recency decay
-   - Skip penalty
+## 🛠 Tech Stack
 
-3. **LLM Agent** (optional)
-   - Natural language playlist requests
-   - Tool-calling with library search, semantic search, audio similarity
-   - Validates all track IDs against actual library
-
-### Audio Analysis
-
-Each track is analyzed with:
-- **Essentia**: BPM, energy, valence, danceability, key, mode, loudness, 20-dim MFCC vector
-- **bge-m3**: 1024-dim text embedding of lyrics for semantic search
-- **LLM**: Vibe tags (e.g., "melancholic", "driving", "late-night")
-- **Multimodal**: Spectrogram description via vision model
-
-## 🛠️ Tech Stack
-
-- **API**: FastAPI, Python 3.11+
-- **Media Engine**: Navidrome (Go)
-- **Database**: PostgreSQL 16 + pgvector
-- **Task Queue**: Celery + Redis
-- **Audio Analysis**: Essentia
-- **Embeddings**: bge-m3 (sentence-transformers)
-- **LLM**: OpenAI-compatible API (configurable)
-- **MCP**: FastMCP for AI agent integration
+| Component | Technology |
+|-----------|-----------|
+| API | FastAPI, Python 3.11+ |
+| Media Engine | Navidrome (Go) |
+| Database | PostgreSQL 16 + pgvector |
+| Task Queue | Celery + Redis |
+| Audio Analysis | Essentia |
+| Embeddings | bge-m3 (sentence-transformers) |
+| LLM | OpenAI-compatible API (configurable) |
+| Client | Flutter (Android) |
+| MCP | FastMCP |
 
 ## 🔌 Source Plugins
 
 KWhale can search and download from multiple streaming services:
 
-- **ICM** (Internet Content Music)
-- **Yandex Music**
-- **Deezer**
-- Extensible plugin system — add your own in `worker/app/providers/`
+- **ICM** (Internet Content Music) — preferred, high-quality
+- **Yandex Music** — fallback, broad catalog
+- **Extensible** — add your own in `worker/app/providers/`
 
-## 🤖 MCP Server
+## 🧠 Recommendation Engine
 
-KWhale includes an MCP server for AI agent integration:
+KWhale uses a three-layer recommendation system:
 
-```bash
-# Test with MCP Inspector
-npx @modelcontextprotocol/inspector http://localhost:8090/mcp
-```
+1. **Candidate Generation** — pgvector cosine kNN from the user's taste centroid
+   with HNSW index (`ef_search=300` for high recall)
+2. **Personalization Layer** — play frequency, completion rate, time-of-day
+   affinity, recency decay, skip penalty
+3. **LLM Curation** — one call to an LLM (configurable, defaults to a small
+   model) that re-ranks candidates with transparent scoring
 
-Available tools:
-- `search_library` — Search local library
-- `get_similar_tracks` — Find similar by audio features
-- `semantic_search` — Search by lyric meaning
-- `get_recommendations` — Get personalized recommendations
-- `acquire_track` — Download from remote sources
-- `get_taste_profile` — User preference profile
-- And more...
+Recommendations are always persisted (cold-start fallback to random fresh
+picks). Per-user, multi-tenant aware.
 
-## 📊 API Endpoints
+## 📚 Documentation
 
-- `POST /api/auth/login` — Get JWT token
-- `GET /api/library/search` — Search library
-- `GET /api/stream/{id}` — Stream track (302 to Navidrome)
-- `POST /api/events` — Ingest playback telemetry
-- `GET /api/recs` — Get recommendations
-- `GET /api/discover` — Search remote sources
-- `POST /api/discover/acquire` — Download track
-- `GET /api/vibe/{id}` — Get audio features
-
-Interactive docs: http://localhost:19000/docs
-
-## 🧪 Development
-
-```bash
-# Rebuild after code changes
-docker compose up -d --build api
-
-# View logs
-docker compose logs -f worker
-
-# Run tests
-docker compose exec api pytest
-docker compose exec worker pytest
-
-# Access database
-docker compose exec postgres psql -U kwhale -d kwhale
-```
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development guide.
+- [Installation Guide](docs/INSTALLATION.md) — Complete setup walkthrough
+- [Architecture](ARCHITECTURE.md) — System design and components
+- [Configuration](docs/CONFIGURATION.md) — Environment variables reference
+- [Development](docs/DEVELOPMENT.md) — Contributing and local development
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 📄 License
 
-GNU General Public License v3.0 - see [LICENSE](LICENSE) for details.
+KWhale is licensed under the [GNU General Public License v3](LICENSE).
 
-## 🙏 Acknowledgments
+The KWhale client (Flutter app) is a fork of [Musly](https://github.com/dddevid/Musly)
+by [dddevid](https://github.com/dddevid), used under its license.
 
-- [Navidrome](https://www.navidrome.org/) — Excellent media server
-- [Essentia](https://essentia.upf.edu/) — Audio analysis library
-- [pgvector](https://github.com/pgvector/pgvector) — Vector similarity search
-- [FastMCP](https://github.com/jlowin/fastmcp) — MCP server framework
+## 💬 Community
 
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/kwhale/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/kwhale/discussions)
-
----
-
-Built with ❤️ for music lovers who value privacy and control over their data.
+- [GitHub Issues](https://github.com/Atte149/kwhale/issues) — Bug reports
+- [GitHub Discussions](https://github.com/Atte149/kwhale/discussions) — Ideas, Q&A

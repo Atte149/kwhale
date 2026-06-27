@@ -256,7 +256,7 @@ async def run_prompt_agent(pool, prompt: str, limit: int = 30) -> list[str]:
     headers = {
         "Authorization": f"Bearer {settings.openai_api_key}",
         "Content-Type": "application/json",
-        "User-Agent": "melorise/1.0",
+        "User-Agent": "kwhale/1.0",
     }
 
     try:

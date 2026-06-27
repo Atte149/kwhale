@@ -1,34 +1,26 @@
 ---
 name: Feature Request
-about: Suggest a new feature or enhancement for KWhale
-title: '[FEATURE] '
+about: Suggest a feature for KWhale
+title: "[FEATURE] "
 labels: enhancement
-assignees: ''
 ---
 
-## Feature Description
+## Feature description
+
 A clear and concise description of the feature you'd like to see.
 
-## Use Case
-Explain the problem this feature would solve or the value it would add.
+## Problem it solves
 
-## Proposed Solution
-Describe how you envision this feature working.
+What problem does this feature solve? What's the current workaround?
 
-## Alternatives Considered
-Have you considered any alternative solutions or features?
+## Proposed solution
 
-## Additional Context
-Add any other context, mockups, or examples about the feature request here.
+How do you imagine this feature working?
 
-## Implementation Complexity
-If you have thoughts on implementation:
-- [ ] Simple (configuration change, minor code addition)
-- [ ] Moderate (new endpoint, new service integration)
-- [ ] Complex (architectural change, new service)
-- [ ] Unknown
+## Alternatives considered
 
-## Checklist
-- [ ] I have searched existing issues to avoid duplicates
-- [ ] I have clearly described the use case
-- [ ] I have considered alternatives
+Any alternative solutions you've considered.
+
+## Additional context
+
+Any other context, screenshots, or references.

@@ -1,17 +1,35 @@
+# Environment files (secrets — never commit)
 .env
 api/.env
 worker/.env
 mcp/.env
 tagger/.env
+
+# Python
 **/__pycache__/
 **/*.pyc
 *.egg-info/
-.DS_Store
 .pytest_cache/
-.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & databases
 *.log
 *.db
 *.db-shm
 *.db-wal
 data/
-PUBLICATION_GUIDE.md
+kwhale-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI agent configs (internal)
+.claude/
+AGENTS.md

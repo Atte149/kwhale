@@ -29,7 +29,9 @@ celery_app.conf.beat_schedule = {
     "generate-recommendations-daily": {
         "task": "app.tasks.generate_recommendations",
         "schedule": crontab(hour=4, minute=0),
-        "args": ("vladik", "hybrid"),
+        # Generates for all users with playback events (see update_all_taste_profiles).
+        # The task itself iterates all users if no specific user_id is passed.
+        "args": (None, "hybrid"),
     },
     # Auto-index: pick up tracks added to the library (download -> tag -> scan)
     # and index them into track_features. index_all_tracks is idempotent -- it
@@ -360,8 +362,19 @@ def backfill_artists(navidrome_id: str) -> bool:
 
 
 @celery_app.task(name="app.tasks.generate_recommendations")
-def generate_recommendations(user_id: str, algorithm: str = "hybrid") -> list[str]:
-    return _gen_recs(user_id, algorithm)
+def generate_recommendations(user_id: str | None = None, algorithm: str = "hybrid") -> list[str]:
+    """Generate recommendations for a single user, or all users if user_id is None."""
+    if user_id is not None:
+        return _gen_recs(user_id, algorithm)
+    # Generate for all users with playback events
+    with _db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT user_id FROM playback_events")
+            users = [r[0] for r in cur.fetchall()]
+    results = []
+    for user in users:
+        results.extend(_gen_recs(user, algorithm))
+    return results
 
 
 @celery_app.task(name="app.tasks.update_all_taste_profiles")

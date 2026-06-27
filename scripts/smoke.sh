@@ -2,9 +2,9 @@
 # End-to-end smoke test for KWhale. Hits the public domain like a real client.
 # Usage: bash scripts/smoke.sh   (override KWHALE_BASE/USER/PASS via env)
 set -uo pipefail
-BASE="${KWHALE_BASE:-https://music.dueattendant149.org}"
-USER="${KWHALE_USER:-vladik}"
-PASS="${KWHALE_PASS:-melorise}"
+BASE="${KWHALE_BASE:-http://localhost:19000}"
+USER="${KWHALE_USER:-admin}"
+PASS="${KWHALE_PASS:-}"
 fail=0
 ok(){ echo "  OK   $1"; }
 bad(){ echo "  FAIL $1"; fail=1; }

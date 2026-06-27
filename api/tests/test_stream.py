@@ -22,10 +22,10 @@ def test_stream_url_uses_public_url_when_configured():
     orig_public = settings.public_navidrome_url
     orig_internal = settings.navidrome_url
     try:
-        settings.public_navidrome_url = "https://music.dueattendant149.org"
+        settings.public_navidrome_url = "https://music.example.com"
         settings.navidrome_url = "http://navidrome:4533"
         url = navidrome.stream_url("song-1", max_bitrate=192)
-        assert url.startswith("https://music.dueattendant149.org/rest/stream.view?")
+        assert url.startswith("https://music.example.com/rest/stream.view?")
         assert "id=song-1" in url
         assert "maxBitRate=192" in url
         # Sanity: internal hostname must NOT appear

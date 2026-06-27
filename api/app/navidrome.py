@@ -218,7 +218,7 @@ async def trigger_scan() -> None:
 def stream_url(song_id: str, max_bitrate: int = 0) -> str:
     """Return a Navidrome stream URL for redirect.
     Uses PUBLIC_NAVIDROME_URL when configured (the public host the client can
-    actually reach — e.g. https://music.dueattendant149.org), otherwise falls
+    actually reach — e.g. https://music.example.com), otherwise falls
     back to navidrome_url (internal Docker hostname, used in tests and by
     in-network clients). The client follows the 302 and streams bytes from
     Navidrome directly, keeping audio bytes out of our FastAPI process.

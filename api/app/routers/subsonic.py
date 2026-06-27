@@ -4,7 +4,7 @@ The Flutter client (Musly fork) speaks OpenSubsonic for everything except
 auth, which means search / cover art / scrobble / playlists all hit
 `/rest/<endpoint>?...` against whatever base URL the user configured.
 
-When the user configures `serverUrl = https://music.dueattendant149.org`
+When the user configures `serverUrl = https://music.example.com`
 the request is routed by Caddy to Navidrome directly. But when the user
 configures a LAN address like `http://192.168.1.119:19000` (the API
 container), there is no subsonic handler there — so the client gets

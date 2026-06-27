@@ -1,41 +1,43 @@
 ---
 name: Bug Report
-about: Report a bug or issue with KWhale
-title: '[BUG] '
+about: Report a bug to help us improve KWhale
+title: "[BUG] "
 labels: bug
-assignees: ''
 ---
 
-## Description
-A clear and concise description of the bug.
+## Describe the bug
 
-## Steps to Reproduce
-1. Go to '...'
-2. Click on '...'
-3. Run command '...'
-4. See error
+A clear and concise description of what the bug is.
 
-## Expected Behavior
+## To Reproduce
+
+Steps to reproduce the behavior:
+
+1. ...
+2. ...
+3. ...
+
+## Expected behavior
+
 What you expected to happen.
 
-## Actual Behavior
+## Actual behavior
+
 What actually happened.
 
 ## Environment
-- OS: [e.g., Ubuntu 22.04, macOS 13]
-- Docker version: [e.g., 24.0.5]
-- Docker Compose version: [e.g., 2.20.0]
-- KWhale version/commit: [e.g., main branch, commit abc123]
+
+- KWhale version: [e.g. latest from main]
+- Deployment: [Docker Compose / manual / other]
+- Client: [Flutter app version / Subsonic client name]
+- OS: [e.g. Ubuntu 22.04]
 
 ## Logs
+
 ```
-Paste relevant logs here (docker compose logs -f service_name)
+Paste relevant logs here (docker compose logs api worker)
 ```
 
-## Additional Context
-Add any other context about the problem here (screenshots, configuration, etc.)
+## Additional context
 
-## Checklist
-- [ ] I have searched existing issues to avoid duplicates
-- [ ] I have included relevant logs
-- [ ] I have provided steps to reproduce
+Add any other context about the problem here.
