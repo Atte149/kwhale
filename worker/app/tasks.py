@@ -374,3 +374,54 @@ def update_all_taste_profiles():
     for user in users:
         update_taste_profile(user)
         generate_recommendations(user)
+
+
+@celery_app.task(name="app.tasks.retag_library")
+def retag_library(force: bool = False, limit: int | None = None) -> dict:
+    """Scan the library, classify tracks by tag quality, and retag bad ones.
+
+    Classification: 'bad' (empty/generic tags), 'uncertain' (filename mismatch),
+    'good' (valid tags). Only bad + uncertain are retagged unless force=True.
+
+    Backups old tags to tag_revisions. Triggers Navidrome scan after.
+    """
+    from .retagger import retag_library as _retag
+
+    stats = _retag(force=force, limit=limit)
+
+    # Trigger Navidrome rescan so new tags propagate
+    try:
+        import hashlib, secrets, httpx
+        salt = secrets.token_hex(6)
+        token = hashlib.md5(
+            f"{os.environ.get('NAVIDROME_PASSWORD', '')}{salt}".encode()
+        ).hexdigest()
+        nav_url = os.environ.get("NAVIDROME_URL", "http://navidrome:4533")
+        nav_user = os.environ.get("NAVIDROME_USERNAME", "admin")
+        with httpx.Client(timeout=10.0) as client:
+            client.get(
+                f"{nav_url}/rest/startScan.view",
+                params={"u": nav_user, "t": token, "s": salt,
+                        "v": "1.16.1", "c": "kwhale-retag", "f": "json"},
+            )
+    except Exception as e:
+        print(f"Navidrome scan trigger failed: {e}")
+
+    print(f"Retag complete: {stats}")
+    return stats
+
+
+@celery_app.task(name="app.tasks.scan_library_tags")
+def scan_library_tags() -> dict:
+    """Scan library and classify tracks without retagging. For status endpoint."""
+    from .retagger import scan_library as _scan
+
+    results = _scan()
+    stats = {
+        "total": len(results),
+        "good": sum(1 for r in results if r["classification"] == "good"),
+        "bad": sum(1 for r in results if r["classification"] == "bad"),
+        "uncertain": sum(1 for r in results if r["classification"] == "uncertain"),
+        "bad_tracks": [r for r in results if r["classification"] == "bad"][:100],
+    }
+    return stats

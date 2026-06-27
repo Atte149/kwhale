@@ -33,6 +33,11 @@ class TagRequest(BaseModel):
     force: bool = False
 
 
+class ResolveRequest(BaseModel):
+    filepath: str
+    hint: dict | None = None
+
+
 def _read_metadata_json(filepath: Path) -> dict | None:
     meta_path = filepath.parent / "metadata.json"
     if not meta_path.is_file():
@@ -50,6 +55,28 @@ def _read_metadata_json(filepath: Path) -> dict | None:
 @app.get("/healthz")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/resolve")
+async def resolve(req: ResolveRequest):
+    """Resolve metadata for a file via Shazam + AcoustID, without moving it.
+
+    Used by the worker's retag task — the worker calls this to leverage
+    the tagger's Shazam + SOCKS5 proxy setup.
+    """
+    filepath = req.filepath
+    if not os.path.exists(filepath):
+        return {"title": "", "artist": "", "_source": "not_found"}
+
+    meta = await asyncio.to_thread(resolve_metadata, filepath, force=True, meta_hint=req.hint)
+    if not meta or not meta.get("title"):
+        return {"title": "", "artist": "", "_source": "unresolved"}
+
+    # Detect which source provided the result by checking if Shazam fields exist
+    # (Shazam sets genre, AcoustID doesn't typically)
+    source = "shazam" if meta.get("genre") and not meta.get("_acoustid") else "acoustid"
+    meta["_source"] = source
+    return meta
 
 
 @app.post("/tag")

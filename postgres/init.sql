@@ -189,3 +189,33 @@ CREATE TABLE IF NOT EXISTS stream_counter (
     auto_acquired   BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (provider, provider_id, user_id)
 );
+
+-- ── Tag revisions (backup of old tags before retagging) ────────────────────────
+CREATE TABLE IF NOT EXISTS tag_revisions (
+    id              SERIAL PRIMARY KEY,
+    navidrome_id    TEXT,
+    filepath        TEXT NOT NULL,
+    old_tags        JSONB NOT NULL DEFAULT '{}',
+    new_tags        JSONB NOT NULL DEFAULT '{}',
+    source          TEXT NOT NULL DEFAULT 'retag',  -- 'shazam','acoustid','filename','manual'
+    classification  TEXT NOT NULL DEFAULT 'bad',    -- 'bad','uncertain','good'
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tag_revisions_navidrome ON tag_revisions (navidrome_id);
+CREATE INDEX IF NOT EXISTS tag_revisions_created ON tag_revisions (created_at DESC);
+
+-- ── Artist aliases (translit / alternate names) ────────────────────────────────
+CREATE TABLE IF NOT EXISTS artist_aliases (
+    id              SERIAL PRIMARY KEY,
+    artist_name     TEXT NOT NULL,     -- canonical (e.g. "Сплин")
+    alias           TEXT NOT NULL,     -- alternate  (e.g. "Splen")
+    alias_type      TEXT NOT NULL DEFAULT 'translit',  -- 'translit','aka','former'
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (artist_name, alias)
+);
+
+CREATE INDEX IF NOT EXISTS artist_aliases_alias_trgm
+    ON artist_aliases USING gin (alias gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS artist_aliases_name_trgm
+    ON artist_aliases USING gin (artist_name gin_trgm_ops);
