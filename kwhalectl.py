@@ -117,6 +117,43 @@ def http_post_json(url: str, data: dict, headers: dict | None = None, timeout: i
     return http_post(url, data, headers, timeout)
 
 
+def http_put(url: str, data: dict, headers: dict | None = None, timeout: int = 10) -> tuple[int, str]:
+    try:
+        body = json.dumps(data).encode()
+        req = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "application/json", **(headers or {})},
+            method="PUT",
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+            return resp.status, resp.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode(errors="replace")
+        except Exception:
+            body = str(e)
+        return e.code, body
+    except Exception as e:
+        return 0, str(e)
+
+
+def http_delete(url: str, headers: dict | None = None, timeout: int = 10) -> tuple[int, str]:
+    try:
+        req = urllib.request.Request(
+            url, headers=headers or {}, method="DELETE",
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+            return resp.status, resp.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode(errors="replace")
+        except Exception:
+            body = str(e)
+        return e.code, body
+    except Exception as e:
+        return 0, str(e)
+
+
 # ───────────────────────── commands ─────────────────────────
 
 
@@ -360,6 +397,170 @@ def cmd_create_user(args: list[str]) -> None:
         print(f"  [FAIL] CreateUser ({code}): {body}")
 
 
+def _nav_login(nav_port: int, admin: str, pw: str) -> str:
+    """Get Navidrome JWT token."""
+    code, body = http_post_json(
+        f"http://127.0.0.1:{nav_port}/auth/login",
+        {"username": admin, "password": pw},
+    )
+    if code != 200:
+        print(f"  [FAIL] Admin login ({code}): {body}")
+        sys.exit(1)
+    return json.loads(body).get("token", "")
+
+
+def cmd_create_client(args: list[str]) -> None:
+    """Create an isolated client: user + music folder + library + access.
+
+    Usage: kwhalectl create-client <username> [password]
+
+    Creates:
+      1. Data folder: $DATA_ROOT/music/library/<username>/
+      2. Navidrome user (non-admin)
+      3. Navidrome library pointing to the user's folder
+      4. Restricts user access to ONLY their library (removes default library)
+    """
+    if not args:
+        print("  Usage: kwhalectl create-client <username> [password]")
+        sys.exit(1)
+
+    username = args[0]
+    env = get_env()
+    nav_port = get_api_port() - 19000 + 4535
+    admin = env.get("NAVIDROME_USERNAME", "admin")
+    pw = env.get("NAVIDROME_PASSWORD", "")
+    data_root = env.get("DATA_ROOT", "")
+
+    import getpass
+    password = args[1] if len(args) > 1 else getpass.getpass("Password: ")
+
+    print(f"\n  Creating isolated client '{username}'...")
+
+    # 1. Create music folder
+    music_dir = f"{data_root}/music/library/{username}"
+    os.makedirs(music_dir, exist_ok=True)
+    print(f"  [+] Music folder: {music_dir}")
+
+    # 2. Get admin JWT
+    jwt = _nav_login(nav_port, admin, pw)
+
+    # 3. Create Navidrome library
+    lib_name = f"{username}'s Library"
+    # Container path: /music/<username> (Navidrome mounts DATA_ROOT/music/library as /music)
+    container_path = f"/music/{username}"
+    code, body = http_post(
+        f"http://127.0.0.1:{nav_port}/api/library",
+        {"name": lib_name, "path": container_path, "defaultNewUsers": False},
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    if code != 200:
+        print(f"  [FAIL] Create library ({code}): {body}")
+        sys.exit(1)
+    lib_id = ""
+    try:
+        lib_id = json.loads(body).get("id", "")
+    except Exception:
+        pass
+    # Navidrome expects libraryIds as []int
+    try:
+        lib_id_int = int(lib_id)
+    except (ValueError, TypeError):
+        lib_id_int = lib_id
+    print(f"  [+] Library '{lib_name}' created (id: {lib_id})")
+
+    # 4. Create user
+    code, body = http_post(
+        f"http://127.0.0.1:{nav_port}/api/user",
+        {"userName": username, "password": password, "name": username, "isAdmin": False},
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    if code != 200:
+        print(f"  [FAIL] Create user ({code}): {body}")
+        sys.exit(1)
+    user_id = ""
+    try:
+        user_id = json.loads(body).get("id", "")
+    except Exception:
+        pass
+    print(f"  [+] User '{username}' created (id: {user_id})")
+
+    # 5. Restrict user access to ONLY the new library (remove default library)
+    code, body = http_put(
+        f"http://127.0.0.1:{nav_port}/api/user/{user_id}/library",
+        {"libraryIds": [lib_id_int]},
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    if code == 200:
+        print(f"  [+] User access restricted to '{lib_name}' only")
+    else:
+        print(f"  [WARN] Could not restrict library access ({code}): {body}")
+        print(f"         Manually edit user in Navidrome UI to remove default library")
+
+    # 7. Trigger scan of the new library
+    import hashlib, time, secrets
+    salt = secrets.token_hex(6)
+    token = hashlib.md5(f"{pw}{salt}".encode()).hexdigest()
+    code, _ = http_get(
+        f"http://127.0.0.1:{nav_port}/rest/startScan.view",
+        headers={},
+    )
+    # Use the simple startScan
+    try:
+        scan_url = (f"http://127.0.0.1:{nav_port}/rest/startScan.view"
+                    f"?u={admin}&t={token}&s={salt}&v=1.16.1&c=kwhalectl&f=json")
+        http_get(scan_url)
+    except Exception:
+        pass
+
+    print(f"\n  [OK] Client '{username}' ready!")
+    print(f"       Music folder: {music_dir}")
+    print(f"       Library:      {lib_name}")
+    print(f"       Login:        {username} / (password you set)")
+    print(f"\n  Next: copy music to {music_dir}/")
+    print(f"        Navidrome will auto-scan within 1 minute.")
+
+
+def cmd_list_libraries(args: list[str]) -> None:
+    """List all Navidrome libraries and their users."""
+    env = get_env()
+    nav_port = get_api_port() - 19000 + 4535
+    admin = env.get("NAVIDROME_USERNAME", "admin")
+    pw = env.get("NAVIDROME_PASSWORD", "")
+
+    jwt = _nav_login(nav_port, admin, pw)
+
+    # Get libraries
+    code, body = http_get(
+        f"http://127.0.0.1:{nav_port}/api/library",
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    if code != 200:
+        print(f"  [FAIL] Get libraries ({code}): {body}")
+        sys.exit(1)
+    libs = json.loads(body)
+
+    # Get users
+    code, body = http_get(
+        f"http://127.0.0.1:{nav_port}/api/user",
+        headers={"x-nd-authorization": f"Bearer {jwt}"},
+    )
+    users = json.loads(body) if code == 200 else []
+
+    print("=== Libraries ===")
+    for lib in libs:
+        n_songs = lib.get("totalSongs", 0)
+        n_albums = lib.get("totalAlbums", 0)
+        default = " (default)" if lib.get("defaultNewUsers") else ""
+        print(f"  [{lib['id']}] {lib['name']}{default}")
+        print(f"      Path:   {lib['path']}")
+        print(f"      Songs:  {n_songs}, Albums: {n_albums}")
+        # Find users with access
+        lib_users = [u["userName"] for u in users
+                     if any(l["id"] == lib["id"] for l in u.get("libraries", []))]
+        print(f"      Users:  {', '.join(lib_users) if lib_users else '(none)'}")
+        print()
+
+
 COMMANDS = {
     "status": cmd_status,
     "smoke": cmd_smoke,
@@ -372,6 +573,8 @@ COMMANDS = {
     "index": cmd_index,
     "token": cmd_token,
     "create-user": cmd_create_user,
+    "create-client": cmd_create_client,
+    "list-libraries": cmd_list_libraries,
 }
 
 
