@@ -2,6 +2,10 @@
 
 **Self-hosted music streaming with AI-powered recommendations**
 
+[![CI](https://github.com/Atte149/kwhale/actions/workflows/ci.yml/badge.svg)](https://github.com/Atte149/kwhale/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg?logo=docker)](https://docs.docker.com/compose/)
+
 KWhale combines [Navidrome](https://github.com/navidrome/navidrome) with an AI
 recommendation engine, source plugins, and a beautiful Flutter mobile client.
 Stream your library, get personalized recommendations based on audio features

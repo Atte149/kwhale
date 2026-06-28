@@ -1,0 +1,38 @@
+# Environment / secrets
+.env
+.env.example
+api/.env
+worker/.env
+mcp/.env
+tagger/.env
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Data & databases
+*.log
+*.db
+*.db-shm
+*.db-wal
+data/
+kwhale-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git / GitHub
+.git/
+.github/
+.gitignore
+
+# AI agent configs (internal)
+.claude/
+AGENTS.md

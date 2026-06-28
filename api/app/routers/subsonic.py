@@ -6,7 +6,7 @@ auth, which means search / cover art / scrobble / playlists all hit
 
 When the user configures `serverUrl = https://music.example.com`
 the request is routed by Caddy to Navidrome directly. But when the user
-configures a LAN address like `http://192.168.1.119:19000` (the API
+configures a LAN address like `http://<your-lan-ip>:19000` (the API
 container), there is no subsonic handler there — so the client gets
 empty/404 responses and search appears broken.
 

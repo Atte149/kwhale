@@ -50,13 +50,12 @@ Optional:
 - `ICM_PARTNER_KEY` - For ICM music source plugin
 - `YANDEX_MUSIC_TOKEN` - For Yandex Music source plugin
 
-### 3. Run Setup Script
+### 3. Create Data Directories
 
 ```bash
-bash scripts/setup.sh
+mkdir -p data/music/{library,incoming,failed}
+mkdir -p data/{navidrome,postgres,redis}
 ```
-
-This creates the data directory structure and copies environment files.
 
 ### 4. Build and Start
 

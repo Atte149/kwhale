@@ -17,7 +17,12 @@ git clone https://github.com/yourusername/kwhale.git
 cd kwhale
 
 # Set up environment
-bash scripts/setup.sh
+cp .env.example .env
+cp api/.env.example api/.env
+cp worker/.env.example worker/.env
+cp mcp/.env.example mcp/.env
+mkdir -p data/music/{library,incoming,failed}
+mkdir -p data/{navidrome,postgres,redis}
 
 # Start services
 docker compose up -d
