@@ -74,14 +74,14 @@ async def unified_search(
     q: str = Query(..., min_length=1),
     limit: int = Query(20, le=50),
     scope: str = Query("all", description="all | library | online"),
-    type: str = Query("all", description="all | track | album | artist"),
+    result_type: str = Query("all", alias="type", description="all | track | album | artist"),
     user: str = Depends(current_user),
 ):
     want_local = scope in ("all", "library")
     want_online = scope in ("all", "online")
-    want_tracks = type in ("all", "track")
-    want_albums = type in ("all", "album")
-    want_artists = type in ("all", "artist")
+    want_tracks = result_type in ("all", "track")
+    want_albums = result_type in ("all", "album")
+    want_artists = result_type in ("all", "artist")
 
     async def _local():
         results = await navidrome.search(
