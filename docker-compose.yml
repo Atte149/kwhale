@@ -1,27 +1,25 @@
 services:
-  navidrome:
-    image: deluan/navidrome:latest
+  gonic:
+    image: sentriz/gonic:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:4535:4533"
+      - "127.0.0.1:4535:80"
     environment:
-      ND_SCANSCHEDULE: 1m
-      ND_LOGLEVEL: info
-      ND_SESSIONTIMEOUT: 24h
-      ND_BASEURL: ""
-      ND_LASTFM_ENABLED: "false"
-      ND_ENABLETRANSCODINGCONFIG: "true"
-      ND_DEFAULTTHEME: "Dark"
-      ND_INITIAL_ADMIN_USERNAME: ${NAVIDROME_USERNAME}
-      ND_INITIAL_ADMIN_PASSWORD: ${NAVIDROME_PASSWORD}
+      - GONIC_MUSIC_PATH=/music
+      - GONIC_CACHE_PATH=/data/cache
+      - GONIC_DB_PATH=/data/gonic.db
+      - GONIC_PLAYLISTS_PATH=/data/playlists
+      - GONIC_PODCAST_PATH=/data/podcasts
+      - GONIC_SCAN_INTERVAL=1
+      - GONIC_SCAN_AT_START_ENABLED=true
+      - GONIC_SCAN_WATCHER_ENABLED=true
+      - GONIC_MULTI_VALUE_ARTIST=multi
+      - GONIC_MULTI_VALUE_ALBUM_ARTIST=multi
+      - GONIC_MULTI_VALUE_GENRE=multi
+      - GONIC_HTTP_LOG=false
     volumes:
-      - ${DATA_ROOT}/navidrome:/data
+      - ${DATA_ROOT}/gonic:/data
       - ${DATA_ROOT}/music/library:/music:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4533/ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
     networks:
       - kwhale_net
       - caddy_default
@@ -34,7 +32,7 @@ services:
     env_file:
       - ./api/.env
     environment:
-      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_URL: http://gonic:80
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
       PUBLIC_NAVIDROME_URL: ${PUBLIC_NAVIDROME_URL:-}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
@@ -45,12 +43,12 @@ services:
       EMBEDDING_API_URL: http://embedding:8000/v1/embeddings
     volumes:
       - ${DATA_ROOT}/music/library:/data/library:ro
-      - ${DATA_ROOT}/navidrome:/data/navidrome:ro
+      - ${DATA_ROOT}/gonic:/data/gonic:ro
       - ${DATA_ROOT}/music/incoming:/data/incoming
       - ${DATA_ROOT}/apk:/apk:ro
     depends_on:
-      navidrome:
-        condition: service_healthy
+      gonic:
+        condition: service_started
       postgres:
         condition: service_healthy
       redis:
@@ -72,17 +70,18 @@ services:
       - ./worker/.env
     environment:
       MUSIC_INCOMING_DIR: /data/incoming
-      NAVIDROME_DB: /navidrome/navidrome.db
+      GONIC_DB: /gonic/gonic.db
       LIBRARY_DIR: /library
       EMBEDDING_API_URL: http://embedding:8000/v1/embeddings
-      NAVIDROME_URL: http://navidrome:4533
+      GONIC_URL: http://gonic:80
+      NAVIDROME_URL: http://gonic:80
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
       LOCAL_TZ_OFFSET_HOURS: "3"
     volumes:
       - ${DATA_ROOT}/music:/data
-      - ${DATA_ROOT}/music/library:/library:ro
-      - ${DATA_ROOT}/navidrome:/navidrome:ro
+      - ${DATA_ROOT}/music/library:/library:rw
+      - ${DATA_ROOT}/gonic:/gonic:ro
     depends_on:
       - redis
       - postgres
@@ -101,9 +100,9 @@ services:
     env_file:
       - ./worker/.env
     environment:
-      NAVIDROME_DB: /navidrome/navidrome.db
+      GONIC_DB: /gonic/gonic.db
     volumes:
-      - ${DATA_ROOT}/navidrome:/navidrome:ro
+      - ${DATA_ROOT}/gonic:/gonic:ro
     depends_on:
       - redis
       - postgres
@@ -118,7 +117,7 @@ services:
     environment:
       INCOMING_DIR: /data/incoming
       LIBRARY_DIR: /data/library
-      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_URL: http://gonic:80
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
       DATABASE_URL: ${DATABASE_URL}
@@ -129,7 +128,7 @@ services:
       - ${DATA_ROOT}/music:/data
     depends_on:
       - postgres
-      - navidrome
+      - gonic
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8093/healthz"]
       interval: 30s
@@ -164,7 +163,7 @@ services:
       - ./mcp/.env
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      NAVIDROME_URL: http://navidrome:4533
+      NAVIDROME_URL: http://gonic:80
       NAVIDROME_USERNAME: ${NAVIDROME_USERNAME}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD}
       KWHALE_API_URL: http://api:8000

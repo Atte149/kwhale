@@ -36,50 +36,65 @@ SEPARATOR_RE = re.compile(
 )
 
 
-def needs_split(artist_tag: str, artists_tag: str | list | None) -> bool:
+def needs_split(artist_tag: str, artists_tag: str | list | None = None) -> bool:
     """Check if a track's artist tag needs splitting.
 
     True when:
-      - `artists` tag is missing/empty AND
-      - `artist` tag contains a separator (&, /, ;, feat., etc.)
+      - `artist` tag contains a separator (comma, ;, &, /, feat., etc.)
+      - AND the file doesn't already have proper multi-value ARTIST fields
+
+    Note: the non-standard `ARTISTS` (plural) field is ignored — it's a
+    Picard convention that Navidrome doesn't read. We check for multi-value
+    ARTIST (singular) instead via the caller.
     """
-    if artists_tag:
-        # Already has multi-value artists tag — no split needed
-        return False
     if not artist_tag:
         return False
-    # Check for separators
+    # Check for separators in the ARTIST field
     if SEPARATOR_RE.search(artist_tag):
         return True
-    # Check for feat./ft. in artist (uncommon but possible)
+    # Check for feat./ft. in artist
     if re.search(r"\bfeat\.?|\bft\.?|\bfeaturing\b", artist_tag, re.IGNORECASE):
         return True
     return False
 
 
 def split_artist_tag(artist: str) -> list[str]:
-    """Split a merged artist string into individual artists."""
-    # Use extract_all_artists with the artist tag as both artists_tag and artist_tag
-    # This handles feat. in the artist field too
-    return extract_all_artists(None, artist)
+    """Split a merged artist string into individual artists.
+
+    Handles: comma, semicolon, &, /, 'and', feat./ft./featuring.
+    """
+    if not artist:
+        return []
+
+    # Split feat./ft./featuring blocks first (with word boundary to avoid matching "Daft")
+    parts = re.split(r"\s*\b(?:feat\.?|ft\.?|featuring)\s+", artist, flags=re.IGNORECASE)
+
+    out: list[str] = []
+    for p in parts:
+        # Split on the separator regex (comma, ;, /, &, 'and')
+        sub = SEPARATOR_RE.split(p)
+        out.extend(sub)
+
+    # Dedupe case-insensitive, preserve order
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in out:
+        name = name.strip()
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            result.append(name)
+
+    return result if result else [artist]
 
 
 def write_artists_tag(filepath: str, artists: list[str]) -> bool:
-    """Write a multi-value `artists` tag to the file.
+    """Write a multi-value ARTIST tag to the file.
 
-    For VorBis (FLAC/Ogg): writes multiple `ARTISTS` fields.
-    For MP3/M4A: uses `artists` easy-tag which maps to TPE1 (multi-value).
+    Uses format-aware writer: FLAC gets multiple Vorbis ARTIST fields,
+    MP3 gets ID3v2.4 TPE1 with null separator, etc.
     """
-    try:
-        mf = mutagen.File(filepath, easy=True)
-        if not mf:
-            return False
-        mf["artists"] = artists
-        mf.save()
-        return True
-    except Exception as e:
-        print(f"write_artists_tag error for {filepath}: {e}")
-        return False
+    from .multivalue import write_multi_artists
+    return write_multi_artists(filepath, artists)
 
 
 def set_albumartist(filepath: str, primary_artist: str) -> bool:

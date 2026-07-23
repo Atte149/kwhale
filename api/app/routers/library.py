@@ -1,10 +1,15 @@
 """Library endpoints — proxies Navidrome + enriches with vibe data from our DB."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+import os
+import shutil
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from ..auth import current_user
 from ..db import get_pool
 from .. import navidrome
+from ..config import settings
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -177,3 +182,33 @@ async def star_song(song_id: str, user: str = Depends(current_user)):
 async def unstar_song(song_id: str, user: str = Depends(current_user)):
     await navidrome.unstar(song_id)
     return {"ok": True}
+
+
+@router.post("/upload")
+async def upload_track(
+    file: UploadFile = File(...),
+    user: str = Depends(current_user),
+):
+    """Upload an audio file to the library directory.
+    Gonic watcher will pick it up automatically.
+    """
+    if not file.filename:
+        raise HTTPException(400, "No filename")
+    
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".mp3", ".flac", ".m4a", ".ogg", ".opus", ".wav", ".aac"):
+        raise HTTPException(400, f"Unsupported format: {ext}")
+    
+    library_dir = Path(settings.library_dir)
+    if not library_dir.exists():
+        raise HTTPException(500, "Library directory not found")
+    
+    dest = library_dir / "Загруженные" / file.filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        return {"ok": True, "path": str(dest), "filename": file.filename}
+    except Exception as e:
+        raise HTTPException(500, f"Upload failed: {e}")

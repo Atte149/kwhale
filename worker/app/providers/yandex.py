@@ -73,7 +73,18 @@ class YandexProvider(BaseProvider):
             track = client.tracks([int(provider_id)])[0]
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest = dest_dir / f"{provider_id}.mp3"
-            track.download(str(dest), codec="mp3", bitrate_in_kbps=320)
+
+            # Get available bitrates and pick the best one instead of
+            # hardcoding 320kbps (many tracks only offer 192kbps).
+            try:
+                track.download(str(dest), codec="mp3", bitrate_in_kbps=320)
+            except Exception:
+                dl_info = track.get_download_info()
+                if not dl_info:
+                    return None
+                best = sorted(dl_info, key=lambda x: x.bitrate_in_kbps or 0, reverse=True)[0]
+                track.download(str(dest), codec=best.codec, bitrate_in_kbps=best.bitrate_in_kbps)
+
             self._embed_tags(dest, track)
             return dest
         except Exception:

@@ -489,21 +489,29 @@ _SC_CLIENT_ID_TTL = 86400  # 24 hours
 
 
 async def _scrape_soundcloud_client_id() -> str | None:
-    """Scrape a working client_id from SoundCloud's JS bundles on sndcdn.com.
+    """Get a working SoundCloud client_id.
 
-    soundcloud.com itself times out from some networks (Russia), but
-    a-v2.sndcdn.com (the CDN that hosts the JS bundles) is reachable.
+    Priority: env var SOUNDCLOUD_CLIENT_ID > DB cache > scrape from sndcdn.com.
     """
     import time
     import re
     import logging
+    import os
 
     log = logging.getLogger("kwhale")
     global _SC_CLIENT_ID, _SC_CLIENT_ID_FETCHED
     if _SC_CLIENT_ID and (time.time() - _SC_CLIENT_ID_FETCHED) < _SC_CLIENT_ID_TTL:
         return _SC_CLIENT_ID
 
-    # Try DB cache first
+    # 1. Env var (most reliable)
+    env_id = os.environ.get("SOUNDCLOUD_CLIENT_ID", "").strip()
+    if env_id:
+        _SC_CLIENT_ID = env_id
+        _SC_CLIENT_ID_FETCHED = time.time()
+        await _cache_put("sc.client_id", "soundcloud", env_id, ttl_hours=24)
+        return _SC_CLIENT_ID
+
+    # 2. DB cache
     cached = await _cache_get("sc.client_id")
     if cached:
         _SC_CLIENT_ID = cached if isinstance(cached, str) else str(cached)
@@ -511,7 +519,8 @@ async def _scrape_soundcloud_client_id() -> str | None:
         print(f"[SoundCloud] using cached client_id={_SC_CLIENT_ID[:8]}...", flush=True)
         return _SC_CLIENT_ID
 
-    print("[SoundCloud] no cached client_id, attempting scrape", flush=True)
+    # 3. Scrape (fallback, often fails from Russia)
+    print("[SoundCloud] no env var or cached client_id, attempting scrape", flush=True)
 
     try:
         # Fetch JS bundles from sndcdn.com CDN (works even when soundcloud.com is blocked)
@@ -584,7 +593,7 @@ async def soundcloud_search(q: str, limit: int = 20) -> dict:
     client_id = await _scrape_soundcloud_client_id()
     if not client_id:
         import logging
-        logging.getLogger("klauncher").warning("SoundCloud: no client_id available")
+        logging.getLogger("kwhale").warning("SoundCloud: no client_id available")
         return empty
 
     key = _key("soundcloud.search", q, str(limit))
@@ -602,7 +611,7 @@ async def soundcloud_search(q: str, limit: int = 20) -> dict:
         data = r.json()
     except Exception as e:
         import logging
-        logging.getLogger("klauncher").warning(f"SoundCloud search error: {e}")
+        logging.getLogger("kwhale").warning(f"SoundCloud search error: {e}")
         return empty
 
     out = {"tracks": [], "albums": [], "artists": []}
@@ -768,23 +777,6 @@ async def _yandex_resolve(track_id: str) -> str | None:
     except Exception:
         return None
 
-
-async def icm_resolve(track_id: str) -> str | None:
-    """Resolve a stream URL for an ICM track."""
-    if not icm_available():
-        return None
-    try:
-        r = await _http().get(
-            f"{ICM_BASE}/api/partner/track/{track_id}/stream",
-            params={"region": settings.icm_default_region},
-            headers=_icm_headers(),
-            timeout=10.0,
-        )
-        if r.status_code == 200:
-            return r.json().get("url")
-    except Exception:
-        pass
-    return None
 
 
 # ── Library matching (mark online tracks already present locally) ────────────

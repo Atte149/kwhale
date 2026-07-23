@@ -144,8 +144,30 @@ def read_tags(filepath: str) -> dict:
     }
 
 
+def _has_cover_art(filepath: str) -> bool:
+    """Check if file already has embedded cover art."""
+    try:
+        ext = Path(filepath).suffix.lower()
+        if ext == ".flac":
+            f = mutagen.File(filepath, easy=False)
+            return bool(f and hasattr(f, 'pictures') and f.pictures)
+        elif ext == ".mp3":
+            f = mutagen.File(filepath, easy=False)
+            return bool(f and f.tags and 'APIC' in f.tags)
+        elif ext in (".m4a", ".mp4"):
+            f = mutagen.File(filepath, easy=False)
+            return bool(f and 'covr' in f)
+    except Exception:
+        pass
+    return False
+
+
 def write_tags(filepath: str, meta: dict) -> bool:
-    """Write tags to audio file."""
+    """Write tags to audio file. Uses multivalue.py for multi-value ARTIST.
+    Also embeds cover art if cover_path is provided."""
+    from .multivalue import write_multi_artists
+    from .artist_splitter import split_artist_tag
+
     try:
         mf = mutagen.File(filepath, easy=True)
         if not mf:
@@ -153,7 +175,15 @@ def write_tags(filepath: str, meta: dict) -> bool:
         if meta.get("title"):
             mf["title"] = [meta["title"]]
         if meta.get("artist"):
-            mf["artist"] = [meta["artist"]]
+            # Split artists and write as multi-value
+            artists = split_artist_tag(meta["artist"])
+            if len(artists) > 1:
+                write_multi_artists(filepath, artists)
+                mf = mutagen.File(filepath, easy=True)
+                if not mf:
+                    return True
+            else:
+                mf["artist"] = [meta["artist"]]
         if meta.get("album"):
             mf["album"] = [meta["album"]]
         if meta.get("albumartist"):
@@ -163,9 +193,51 @@ def write_tags(filepath: str, meta: dict) -> bool:
         if meta.get("genre"):
             mf["genre"] = [meta["genre"]]
         mf.save()
+
+        # Embed cover art if available
+        cover_path = meta.get("_cover_path")
+        if cover_path:
+            _embed_cover(filepath, cover_path)
+
         return True
     except Exception as e:
         print(f"write_tags error for {filepath}: {e}")
+        return False
+
+
+def _embed_cover(filepath: str, cover_path: str) -> bool:
+    """Embed cover art into audio file."""
+    try:
+        from pathlib import Path
+        cover_data = Path(cover_path).read_bytes()
+        if not cover_data or len(cover_data) < 1000:
+            return False
+
+        ext = Path(filepath).suffix.lower()
+        if ext == ".flac":
+            from mutagen.flac import FLAC, Picture
+            f = FLAC(filepath)
+            # Remove existing pictures
+            f.clear_pictures()
+            pic = Picture()
+            pic.data = cover_data
+            pic.type = 3  # front cover
+            pic.mime = "image/jpeg"
+            pic.width = 400
+            pic.height = 400
+            f.add_picture(pic)
+            f.save()
+        elif ext == ".mp3":
+            from mutagen.id3 import ID3, APIC
+            try:
+                tags = ID3(filepath)
+            except Exception:
+                tags = ID3()
+            tags.add(APIC(encoding=3, mime="image/jpeg", type=3, data=cover_data))
+            tags.save(filepath, v2_version=4)
+        return True
+    except Exception as e:
+        print(f"Cover embed error for {filepath}: {e}")
         return False
 
 
@@ -203,16 +275,12 @@ def get_navidrome_id_map() -> dict[str, str]:
 def retag_track(filepath: str, navidrome_id: str | None = None, force: bool = False) -> dict:
     """Classify and retag a single track.
 
-    Returns: {
-        "filepath": str,
-        "classification": "bad"|"uncertain"|"good",
-        "action": "skipped"|"retagged"|"failed",
-        "old_tags": dict,
-        "new_tags": dict | None,
-        "source": str,
-    }
+    Pipeline: existing tags → Shazam → AcoustID → Yandex cross-ref (Cyrillic priority).
+    Yandex always wins when it returns a Cyrillic match.
     """
     from .metadata_proxy import resolve_metadata_remote
+    from .yandex_crossref import yandex_cross_ref
+    from .artist_splitter import split_artist_tag
 
     old_tags = read_tags(filepath)
     classification = classify_track(old_tags, filepath)
@@ -230,10 +298,31 @@ def retag_track(filepath: str, navidrome_id: str | None = None, force: bool = Fa
     # Build hint from filename
     hint = parse_filename_hint(filepath)
 
-    # Try Shazam + AcoustID
-    new_meta = resolve_metadata_remote(filepath, hint=hint)
+    # Step 1: Shazam + AcoustID (gives Latin metadata)
+    resolved = resolve_metadata_remote(filepath, hint=hint)
 
-    if not new_meta or not new_meta.get("title"):
+    # Merge: start with existing, override with resolved
+    merged = {**old_tags}
+    if resolved:
+        merged.update({k: v for k, v in resolved.items() if v and not k.startswith("_")})
+
+    # Step 2: Yandex cross-ref — if we have a title+artist, search Yandex for Cyrillic
+    search_title = merged.get("title", "")
+    search_artist = merged.get("artist", "")
+    if search_title and search_artist:
+        ya_meta = yandex_cross_ref(search_title, search_artist)
+        if ya_meta:
+            # Yandex wins — always use Cyrillic when available
+            source_before = merged.get("_source", "unknown")
+            merged.update({k: v for k, v in ya_meta.items() if v and not k.startswith("_")})
+            merged["_source"] = "yandex"
+            print(f"  Yandex cross-ref: '{search_artist} - {search_title}' -> '{merged.get('artist','')} - {merged.get('title','')}'")
+        else:
+            merged["_source"] = resolved.get("_source", "remote") if resolved else "existing"
+    else:
+        merged["_source"] = resolved.get("_source", "remote") if resolved else "existing"
+
+    if not merged.get("title"):
         # Failed to resolve
         backup_tags(filepath, old_tags, {}, navidrome_id, "failed", classification)
         return {
@@ -245,19 +334,41 @@ def retag_track(filepath: str, navidrome_id: str | None = None, force: bool = Fa
             "source": "failed",
         }
 
-    # Merge: keep existing good fields, override with resolved
-    merged = {**old_tags, **new_meta}
+    # Step 3: Translit check — if artist is in translit, try to map to Cyrillic
+    artist = merged.get("artist", "")
+    if artist:
+        try:
+            from .translit import normalize_artist_name
+            cyr_artist = normalize_artist_name(artist)
+            if cyr_artist and cyr_artist != artist:
+                print(f"  Translit: '{artist}' -> '{cyr_artist}'")
+                merged["artist"] = cyr_artist
+                merged["_source"] = merged.get("_source", "") + "+translit"
+        except Exception:
+            pass
 
-    # Write new tags
+    # Step 4: Download cover art if URL available and file has no cover
+    cover_url = merged.get("cover_url", "")
+    has_cover = _has_cover_art(filepath)
+    if cover_url and not has_cover:
+        from .yandex_crossref import download_cover
+        import tempfile
+        cover_path = tempfile.mktemp(suffix=".jpg")
+        if download_cover(cover_url, cover_path):
+            merged["_cover_path"] = cover_path
+            print(f"  Cover downloaded for {filepath}")
+
+    # Step 5: Write tags (multi-value artist split is handled in write_tags)
     if write_tags(filepath, merged):
-        backup_tags(filepath, old_tags, merged, navidrome_id, new_meta.get("_source", "remote"), classification)
+        source = merged.pop("_source", "remote")
+        backup_tags(filepath, old_tags, merged, navidrome_id, source, classification)
         return {
             "filepath": filepath,
             "classification": classification,
             "action": "retagged",
             "old_tags": old_tags,
             "new_tags": merged,
-            "source": new_meta.get("_source", "remote"),
+            "source": source,
         }
 
     backup_tags(filepath, old_tags, {}, navidrome_id, "write_failed", classification)

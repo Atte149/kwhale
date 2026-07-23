@@ -41,6 +41,13 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.index_all_tracks",
         "schedule": 900.0,
     },
+    # ICM key keep-alive: search + stream probe twice daily (every 12h)
+    # ICM resets inactive keys, so we make a lightweight search + track resolve
+    # to keep the key active and detect invalidation early.
+    "icm-key-keepalive": {
+        "task": "app.tasks.icm_key_keepalive",
+        "schedule": crontab(minute=0, hour="*/12"),
+    },
 }
 
 
@@ -501,3 +508,87 @@ def transliterate_library(dry_run: bool = False, limit: int | None = None) -> di
 
     print(f"Transliteration complete: {stats}")
     return stats
+
+
+@celery_app.task(name="app.tasks.icm_key_keepalive")
+def icm_key_keepalive():
+    """ICM partner key keep-alive: search + track resolve + download 1 track per day.
+
+    ICM resets inactive keys. This task:
+    1. Makes a search request (every 12h)
+    2. Resolves a track URL (every 12h)
+    3. Downloads a small portion of the track (1 track per day, first run only)
+    to ensure the key stays active with actual streaming activity.
+    """
+    import httpx
+    import tempfile
+    key = os.environ.get("ICM_PARTNER_KEY", "")
+    if not key:
+        return {"status": "no_key"}
+
+    base = "https://byicloud.online"
+    headers = {"X-Partner-Key": key}
+    results = {"search": None, "track": None, "download": None, "healthy": False}
+
+    try:
+        # 1. Search probe — используем разный запрос каждый раз
+        queries = ["daft punk get lucky", "imagine dragons believer", "arctic monkeys do i wanna know",
+                   "queen bohemian rhapsody", "the beatles let it be", "linkin park numb",
+                   "eminem lose yourself", "rihanna diamonds"]
+        import random
+        q = random.choice(queries)
+        r = httpx.get(
+            f"{base}/api/partner/search",
+            params={"q": q, "region": "us", "limit": 10},
+            headers=headers, timeout=30.0,
+        )
+        if r.status_code == 200:
+            results["search"] = "ok"
+            results["healthy"] = True
+            # 2. Track resolve probe
+            items = r.json().get("items", [])
+            track_id = None
+            track_title = None
+            for item in items:
+                if not item.get("isArtist") and not item.get("isAlbum"):
+                    track_id = item.get("id")
+                    track_title = item.get("title", "")
+                    break
+            if track_id:
+                tr = httpx.post(
+                    f"{base}/api/partner/track",
+                    json={"trackId": str(track_id), "region": "us", "quality": "128K"},
+                    headers={**headers, "Content-Type": "application/json"},
+                    timeout=15.0,
+                )
+                if tr.status_code == 200:
+                    results["track"] = "ok"
+                    stream_url = tr.json().get("url")
+                    # 3. Download first ~100KB of the track to keep streaming active
+                    if stream_url:
+                        try:
+                            with httpx.stream("GET", stream_url, timeout=30.0,
+                                              follow_redirects=True) as stream:
+                                stream.raise_for_status()
+                                downloaded = 0
+                                for chunk in stream.iter_bytes(chunk_size=8192):
+                                    downloaded += len(chunk)
+                                    if downloaded >= 102400:  # 100KB
+                                        break
+                            results["download"] = f"ok ({downloaded} bytes)"
+                            print(f"ICM keepalive: downloaded {downloaded}B of '{track_title}'")
+                        except Exception as e:
+                            results["download"] = f"error: {e}"
+                else:
+                    results["track"] = f"HTTP {tr.status_code}"
+        elif r.status_code in (401, 403):
+            results["search"] = f"invalid (HTTP {r.status_code})"
+            print(f"WARNING: ICM key invalid! Status: {r.status_code}")
+        else:
+            results["search"] = f"HTTP {r.status_code}"
+    except Exception as e:
+        results["search"] = f"error: {e}"
+        print(f"ICM keepalive error: {e}")
+
+    print(f"ICM keepalive: {results}")
+    return results

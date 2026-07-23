@@ -200,8 +200,29 @@ STATIC_ALIASES: dict[str, str] = {
     "dash": "Даша",
     "dasha": "Даша",
     "lera": "Лера",
-    "lera": "Лера",
-    "lera": "Лера",
+    # ── Modern Russian artist transliterations ──────────────────────────
+    "pyrokinesis": "Пирокинезис",
+    "valentin strykalo": "Валентин Стрикало",
+    "fazi": "Фази",
+    "illumate": "Иллюминат",
+    "kid smoko": "Кид Смоко",
+    "lonown": "Лоновн",
+    "deha inc": "Деха Инк",
+    "flur": "Флёр",
+    "fleur": "Флёр",
+    "fleurs": "Флёр",
+    "9mice": "9mice",  # keep as-is (stage name, not translit)
+    "100 gecs": "100 gecs",  # keep as-is (international)
+    "lana del rey": "Lana Del Rey",  # keep as-is (international)
+    "bring me the horizon": "Bring Me The Horizon",  # keep as-is
+    "pomplamoose": "Pomplamoose",  # keep as-is
+    "arctic monkeys": "Arctic Monkeys",  # keep as-is
+    "ariana grande": "Ariana Grande",  # keep as-is
+    "all time low": "All Time Low",  # keep as-is
+    "ashnikko": "Ashnikko",  # keep as-is
+    "daft punk": "Daft Punk",  # keep as-is
+    "eminem": "Eminem",  # keep as-is
+    "chadenergyjames": "ChadEnergyJames",  # keep as-is
 }
 
 
@@ -281,7 +302,10 @@ def normalize_artist_name(name: str) -> str:
     1. If the name is already Cyrillic, return as-is.
     2. Check static aliases dictionary.
     3. Check artist_aliases table.
-    4. Fall back to algorithmic transliteration.
+    4. Return original — NEVER algorithmic transliteration.
+       ICAO translit is too inaccurate for artist names and destroys
+       international names (Lana Del Rey → Лана Дел Рей).
+       Only Yandex cross-ref can reliably determine if a name should be Cyrillic.
     """
     if not name:
         return name
@@ -301,10 +325,7 @@ def normalize_artist_name(name: str) -> str:
     if db_alias:
         return db_alias
 
-    # Algorithmic transliteration (Latin -> Cyrillic)
-    if has_latin(name) and not has_cyrillic(name):
-        return transliterate_to_cyrillic(name)
-
+    # DO NOT algorithmic transliterate — return original
     return name
 
 

@@ -137,6 +137,13 @@ async def unified_search(
     # library always win over any online duplicate.
     _PROVIDER_PRIORITY = {"icm": 10, "yandex": 20, "soundcloud": 40}
     all_tracks = icm_res["tracks"] + ya_res["tracks"] + sc_res["tracks"]
+
+    # Mark in_library BEFORE dedup so the dedup logic can use it
+    try:
+        await online.mark_in_library(all_tracks)
+    except Exception as e:
+        errors.append(f"in_library: {e}")
+
     by_key: dict[str, dict] = {}
     for t in all_tracks:
         k = f"{(t.get('artist') or '').lower().strip()}|{(t.get('title') or '').lower().strip()}"
@@ -165,10 +172,6 @@ async def unified_search(
             by_key[k] = t
 
     deduped_tracks = list(by_key.values())
-    try:
-        await online.mark_in_library(deduped_tracks)
-    except Exception as e:
-        errors.append(f"in_library: {e}")
 
     return {
         "query": q,
