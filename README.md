@@ -149,7 +149,7 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease
 
 KWhale can search and download from multiple streaming services:
 
-- **ICM** (Internet Content Music) — Apple Music catalog, high-quality
+- **ICM** ([Apple Music alternative client](https://t.me/cloudsavemusic)) — Apple Music catalog, high-quality
 - **Yandex Music** — broad Russian catalog
 - **SoundCloud** — independent artists
 - **Extensible** — add your own in `worker/app/providers/`
@@ -203,7 +203,7 @@ python3 kwhalectl.py update           # git pull + rebuild + restart
 
 ## 🤝 Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are very welcome, since the software is very large and was written primarily using AI; your contribution will be invaluable! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 📄 License
 
