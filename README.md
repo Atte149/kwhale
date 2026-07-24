@@ -13,6 +13,8 @@ Stream your library, get personalized recommendations based on audio features
 and listening patterns, discover new music from multiple streaming services,
 and organize your collection — all running on your own infrastructure.
 
+Warning: This is experimental software, primarily built with AI.
+
 ## ✨ Features
 
 - **Smart Recommendations** — Hybrid content-based + personalized scoring with
